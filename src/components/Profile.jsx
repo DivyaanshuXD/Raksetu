@@ -1,18 +1,50 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { auth } from '../firebase';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { onAuthStateChanged, signOut, updateProfile } from 'firebase/auth';
 import { motion } from 'framer-motion';
 import { ArrowRightOnRectangleIcon, ArrowLeftIcon, PencilIcon } from '@heroicons/react/24/outline';
+import { db } from '../firebase'; // Ensure db is imported
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 
 const Profile = () => {
   const [user, setUser] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [formData, setFormData] = useState({
+    displayName: '',
+    phoneNumber: '',
+    bloodGroup: '',
+    address: '',
+    lastDonationDate: '',
+    totalDonations: '',
+    nextEligibleDate: '',
+    preferredLanguage: '',
+    receiveNotifications: '',
+  });
+  const [loadingData, setLoadingData] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
+        // Fetch additional data from Firestore
+        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          setFormData({
+            displayName: currentUser.displayName || data.displayName || '',
+            phoneNumber: currentUser.phoneNumber || data.phoneNumber || '',
+            bloodGroup: data.bloodGroup || '',
+            address: data.address || '',
+            lastDonationDate: data.lastDonationDate || '',
+            totalDonations: data.totalDonations || '',
+            nextEligibleDate: data.nextEligibleDate || '',
+            preferredLanguage: data.preferredLanguage || '',
+            receiveNotifications: data.receiveNotifications || '',
+          });
+        }
+        setLoadingData(false);
       } else {
         navigate('/login');
       }
@@ -33,7 +65,30 @@ const Profile = () => {
     navigate(-1);
   };
 
-  if (!user) {
+  const handleSave = async () => {
+    if (!user) return;
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        displayName: formData.displayName,
+        phoneNumber: formData.phoneNumber,
+        bloodGroup: formData.bloodGroup,
+        address: formData.address,
+        lastDonationDate: formData.lastDonationDate,
+        totalDonations: formData.totalDonations,
+        nextEligibleDate: formData.nextEligibleDate,
+        preferredLanguage: formData.preferredLanguage,
+        receiveNotifications: formData.receiveNotifications,
+      });
+      await updateProfile(auth.currentUser, { displayName: formData.displayName });
+      setIsEditing(false);
+      alert('Profile updated successfully!');
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      alert('Error updating profile. Please try again.');
+    }
+  };
+
+  if (!user || loadingData) {
     return (
       <div className="min-h-screen flex items-center justify-center font-inter text-neutral-700 dark:text-neutral-300">
         Loading...
@@ -63,19 +118,31 @@ const Profile = () => {
         <div className="flex items-center space-x-6 mb-6">
           <img
             src={user.photoURL || 'https://via.placeholder.com/100'}
-            alt="Profile"
+            alt=""
             className="w-24 h-24 rounded-full object-cover border-4 border-primary-500"
           />
           <div>
             <h3 className="text-xl font-bold text-neutral-700 dark:text-neutral-200 font-inter">
-              {user.displayName || 'Not set'}
+              {isEditing ? (
+                <input
+                  type="text"
+                  value={formData.displayName}
+                  onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
+                  className="w-full p-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-neutral-700 dark:text-white"
+                />
+              ) : (
+                formData.displayName || 'Not set'
+              )}
             </h3>
             <p className="text-neutral-600 dark:text-neutral-400 font-inter">
               {user.email}
             </p>
-            <button className="mt-2 flex items-center space-x-1 text-primary-500 hover:text-primary-600 font-inter">
+            <button
+              onClick={() => isEditing ? handleSave() : setIsEditing(!isEditing)}
+              className="mt-2 flex items-center space-x-1 text-primary-500 hover:text-primary-600 font-inter"
+            >
               <PencilIcon className="h-4 w-4" />
-              <span>Edit Profile</span>
+              <span>{isEditing ? 'Save Profile' : 'Edit Profile'}</span>
             </button>
           </div>
         </div>
@@ -89,25 +156,56 @@ const Profile = () => {
             <label className="block text-neutral-700 dark:text-neutral-200 font-inter font-medium">
               Phone Number
             </label>
-            <p className="text-neutral-600 dark:text-neutral-400 font-inter">
-              {user.phoneNumber || 'Not set'}
-            </p>
+            {isEditing ? (
+              <input
+                type="tel"
+                value={formData.phoneNumber}
+                onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
+                className="w-full p-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-neutral-700 dark:text-white"
+              />
+            ) : (
+              <p className="text-neutral-600 dark:text-neutral-400 font-inter">
+                {formData.phoneNumber || 'Not set'}
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-neutral-700 dark:text-neutral-200 font-inter font-medium">
               Blood Group
             </label>
-            <p className="text-neutral-600 dark:text-neutral-400 font-inter">
-              A+ {/* Replace with actual data if stored in Firebase */}
-            </p>
+            {isEditing ? (
+              <select
+                value={formData.bloodGroup}
+                onChange={(e) => setFormData({ ...formData, bloodGroup: e.target.value })}
+                className="w-full p-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-neutral-700 dark:text-white"
+              >
+                <option value="">Select Blood Group</option>
+                {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((group) => (
+                  <option key={group} value={group}>{group}</option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-neutral-600 dark:text-neutral-400 font-inter">
+                {formData.bloodGroup || 'Not set'}
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-neutral-700 dark:text-neutral-200 font-inter font-medium">
               Address
             </label>
-            <p className="text-neutral-600 dark:text-neutral-400 font-inter">
-              123 Main St, City, Country {/* Replace with actual data */}
-            </p>
+            {isEditing ? (
+              <input
+                type="text"
+                value={formData.address}
+                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                className="w-full p-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-neutral-700 dark:text-white"
+              />
+            ) : (
+              <p className="text-neutral-600 dark:text-neutral-400 font-inter">
+                {formData.address || 'Not set'}
+              </p>
+            )}
           </div>
         </div>
 
@@ -120,25 +218,53 @@ const Profile = () => {
             <label className="block text-neutral-700 dark:text-neutral-200 font-inter font-medium">
               Last Donation Date
             </label>
-            <p className="text-neutral-600 dark:text-neutral-400 font-inter">
-              January 15, 2025 {/* Replace with actual data */}
-            </p>
+            {isEditing ? (
+              <input
+                type="date"
+                value={formData.lastDonationDate}
+                onChange={(e) => setFormData({ ...formData, lastDonationDate: e.target.value })}
+                className="w-full p-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-neutral-700 dark:text-white"
+              />
+            ) : (
+              <p className="text-neutral-600 dark:text-neutral-400 font-inter">
+                {formData.lastDonationDate || 'Not set'}
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-neutral-700 dark:text-neutral-200 font-inter font-medium">
               Total Donations
             </label>
-            <p className="text-neutral-600 dark:text-neutral-400 font-inter">
-              5 {/* Replace with actual data */}
-            </p>
+            {isEditing ? (
+              <input
+                type="number"
+                value={formData.totalDonations}
+                onChange={(e) => setFormData({ ...formData, totalDonations: e.target.value })}
+                className="w-full p-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-neutral-700 dark:text-white"
+                min="0"
+              />
+            ) : (
+              <p className="text-neutral-600 dark:text-neutral-400 font-inter">
+                {formData.totalDonations || '0'}
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-neutral-700 dark:text-neutral-200 font-inter font-medium">
               Next Eligible Donation Date
             </label>
-            <p className="text-neutral-600 dark:text-neutral-400 font-inter">
-              April 15, 2025 {/* Calculated as 3 months after last donation */}
-            </p>
+            {isEditing ? (
+              <input
+                type="date"
+                value={formData.nextEligibleDate}
+                onChange={(e) => setFormData({ ...formData, nextEligibleDate: e.target.value })}
+                className="w-full p-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-neutral-700 dark:text-white"
+              />
+            ) : (
+              <p className="text-neutral-600 dark:text-neutral-400 font-inter">
+                {formData.nextEligibleDate || 'Not set'}
+              </p>
+            )}
           </div>
         </div>
 
@@ -151,17 +277,41 @@ const Profile = () => {
             <label className="block text-neutral-700 dark:text-neutral-200 font-inter font-medium">
               Preferred Language
             </label>
-            <p className="text-neutral-600 dark:text-neutral-400 font-inter">
-              English {/* Replace with actual data */}
-            </p>
+            {isEditing ? (
+              <select
+                value={formData.preferredLanguage}
+                onChange={(e) => setFormData({ ...formData, preferredLanguage: e.target.value })}
+                className="w-full p-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-neutral-700 dark:text-white"
+              >
+                <option value="">Select Language</option>
+                <option value="English">English</option>
+                <option value="Spanish">Spanish</option>
+              </select>
+            ) : (
+              <p className="text-neutral-600 dark:text-neutral-400 font-inter">
+                {formData.preferredLanguage || 'Not set'}
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-neutral-700 dark:text-neutral-200 font-inter font-medium">
               Receive Notifications
             </label>
-            <p className="text-neutral-600 dark:text-neutral-400 font-inter">
-              Yes, via Email and SMS {/* Replace with actual data */}
-            </p>
+            {isEditing ? (
+              <select
+                value={formData.receiveNotifications}
+                onChange={(e) => setFormData({ ...formData, receiveNotifications: e.target.value })}
+                className="w-full p-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-neutral-700 dark:text-white"
+              >
+                <option value="">Select Option</option>
+                <option value="Yes, via Email and SMS">Yes, via Email and SMS</option>
+                <option value="No">No</option>
+              </select>
+            ) : (
+              <p className="text-neutral-600 dark:text-neutral-400 font-inter">
+                {formData.receiveNotifications || 'Not set'}
+              </p>
+            )}
           </div>
         </div>
 

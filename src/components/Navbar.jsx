@@ -6,7 +6,7 @@ import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { UserIcon } from '@heroicons/react/24/outline';
 
 const Navbar = () => {
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
   const [user, setUser] = useState(null);
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
@@ -19,6 +19,7 @@ const Navbar = () => {
   }, []);
 
   useEffect(() => {
+    localStorage.setItem('theme', darkMode ? 'dark' : 'light');
     if (darkMode) {
       document.documentElement.classList.add('dark');
     } else {
@@ -80,7 +81,7 @@ const Navbar = () => {
           </>
         )}
         <button
-          onClick={() => setDarkMode(!darkMode)}
+          onClick={() => setDarkMode((prev) => !prev)}
           className="px-3 py-1 text-sm font-medium bg-gradient-to-r from-gray-200 to-gray-300 text-gray-800 rounded-full dark:from-gray-600 dark:to-gray-500 dark:text-white transition-all hover:scale-105 hover:from-gray-300 hover:to-gray-400 dark:hover:from-gray-500 dark:hover:to-gray-400"
         >
           {darkMode ? t('lightMode') : t('darkMode')}

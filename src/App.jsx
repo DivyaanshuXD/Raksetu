@@ -49,7 +49,7 @@ const App = () => {
     <ThemeProvider value={{ theme, setTheme }}>
       <I18nextProvider i18n={i18n}>
         <Router>
-          <div className="min-h-screen">
+          <div className="min-h-screen bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600">
             <Routes>
               <Route
                 path="/"
