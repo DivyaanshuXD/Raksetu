@@ -31,10 +31,37 @@ export default {
         },
         maroon: '#800000',
         darkPurple: '#4B0082',
+        redCustom: {
+          100: '#FFF5F5',
+          200: '#FED7D7',
+          300: '#F87171',
+          400: '#EF4444',
+          500: '#DC2626',
+          600: '#B91C1C',
+          700: '#991B1B',
+          800: '#7F1D1D',
+          900: '#631717',
+        },
       },
       fontFamily: {
         playfair: ['"Playfair Display"', 'serif'],
         inter: ['Inter', 'sans-serif'],
+        poppins: ['Poppins', 'sans-serif'],
+      },
+      animation: {
+        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        'float': 'float 6s ease-in-out infinite',
+      },
+      keyframes: {
+        float: {
+          '0%, 100%': { transform: 'translateY(0)' },
+          '50%': { transform: 'translateY(-10px)' },
+        },
+        pulse: {
+          '0%': { boxShadow: '0 0 0 0 rgba(239, 68, 68, 0.7)' },
+          '70%': { boxShadow: '0 0 0 10px rgba(239, 68, 68, 0)' },
+          '100%': { boxShadow: '0 0 0 0 rgba(239, 68, 68, 0)' },
+        },
       },
     },
   },

@@ -2,7 +2,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
-// Declare auth and db variables outside the try block
+// Declare auth and db variables globally
 let auth;
 let db;
 
@@ -19,6 +19,7 @@ const requiredEnvVars = [
 requiredEnvVars.forEach((envVar) => {
   if (!import.meta.env[envVar]) {
     console.error(`Missing environment variable: ${envVar}`);
+    throw new Error(`Missing environment variable: ${envVar}`);
   }
 });
 
@@ -34,7 +35,7 @@ const firebaseConfig = {
 // Log the config for debugging
 console.log('Firebase Config:', firebaseConfig);
 
-// Initialize Firebase and assign auth and db
+// Initialize Firebase
 try {
   const app = initializeApp(firebaseConfig);
   auth = getAuth(app);
@@ -44,5 +45,5 @@ try {
   throw new Error('Failed to initialize Firebase. Check your configuration.');
 }
 
-// Export auth, db, and phone auth utilities outside the try block
+// Export auth, db, and phone auth utilities
 export { auth, db, RecaptchaVerifier, signInWithPhoneNumber };
