@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { MapPin } from 'lucide-react';
 import Modal from './Modal';
 import { addEmergencyRequest } from '../services/emergencyService';
+import axios from 'axios';
 
 const bloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
@@ -18,11 +19,50 @@ export default function EmergencyRequestModal({ show, setShow, setShowSuccess, u
     location: '',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loadingLocation, setLoadingLocation] = useState(false);
+
+  // Get real location with reverse geocoding
+  const handleGetLocation = () => {
+    setLoadingLocation(true);
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const lat = position.coords.latitude;
+          const lon = position.coords.longitude;
+          const displayName = await reverseGeocode(lat, lon);
+          setEmergencyForm({ ...emergencyForm, location: displayName });
+          setLoadingLocation(false);
+        },
+        (error) => {
+          console.error('Error getting location:', error);
+          setEmergencyForm({ ...emergencyForm, location: 'Unable to get location' });
+          setLoadingLocation(false);
+        }
+      );
+    } else {
+      setEmergencyForm({ ...emergencyForm, location: 'Geolocation not supported' });
+      setLoadingLocation(false);
+    }
+  };
+
+  // Reverse geocode using Nominatim
+  const reverseGeocode = async (latitude, longitude) => {
+    try {
+      const response = await axios.get(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18`, {
+        headers: {
+          'User-Agent': 'RaksetuApp/1.0 (makrostake@gmail.com)' // Replace with your email
+        }
+      });
+      return response.data.display_name || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+    } catch (error) {
+      console.error('Reverse geocoding failed:', error);
+      return `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+    }
+  };
 
   const handleEmergencyRequest = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
-    
     try {
       await addEmergencyRequest(emergencyForm, userLocation);
       setEmergencyForm({
@@ -43,15 +83,6 @@ export default function EmergencyRequestModal({ show, setShow, setShowSuccess, u
       alert('Failed to submit emergency request. Please try again.');
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const useCurrentLocation = () => {
-    if (userLocation) {
-      const address = `Near ${userLocation.lat.toFixed(4)}, ${userLocation.lng.toFixed(4)}`;
-      setEmergencyForm({ ...emergencyForm, location: address });
-    } else {
-      alert('Unable to get your current location');
     }
   };
 
@@ -90,15 +121,16 @@ export default function EmergencyRequestModal({ show, setShow, setShowSuccess, u
               value={emergencyForm.location}
               onChange={(e) => setEmergencyForm({ ...emergencyForm, location: e.target.value })}
               className="w-full px-4 py-2 border border-gray-200 rounded-l-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-              placeholder="Enter location"
+              placeholder="Enter location or click icon"
               required
             />
             <button
               type="button"
-              onClick={useCurrentLocation}
+              onClick={handleGetLocation}
+              disabled={loadingLocation}
               className="bg-gray-200 hover:bg-gray-300 px-3 rounded-r-lg flex items-center justify-center"
             >
-              <MapPin size={16} />
+              {loadingLocation ? 'Loading...' : <MapPin size={16} />}
             </button>
           </div>
         </div>

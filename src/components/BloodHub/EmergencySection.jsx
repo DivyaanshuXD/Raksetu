@@ -19,12 +19,12 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../utils/firebase';
 
 const bloodTypes = ['All', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
-const rareBloodTypes = ['O h']; // Bombay Blood Group
+const rareBloodTypes = ['O h'];
 
 export default function EmergencySection({ setShowEmergencyModal, getUrgencyColor, emergencyRequests, userLocation, userProfile }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [bloodTypeFilter, setBloodTypeFilter] = useState('All');
-  const [distanceFilter, setDistanceFilter] = useState(null); // New: For proximity-based alerts
+  const [distanceFilter, setDistanceFilter] = useState(null);
   const [filteredEmergencies, setFilteredEmergencies] = useState([]);
   const [viewingEmergency, setViewingEmergency] = useState(false);
   const [selectedEmergency, setSelectedEmergency] = useState(null);
@@ -34,83 +34,54 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
   const [showBloodTypeDropdown, setShowBloodTypeDropdown] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [isOnline, setIsOnline] = useState(navigator.onLine); // New: For offline detection
-  const [newEmergencyNotification, setNewEmergencyNotification] = useState(null); // New: For real-time notifications
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [newEmergencyNotification, setNewEmergencyNotification] = useState(null);
 
-  // Offline detection
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
-
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
 
-  // Real-time emergency response: Notify when a new emergency matches user's blood type
   useEffect(() => {
     if (!userProfile || !userProfile.bloodType || !emergencyRequests) return;
-
     const userBloodType = userProfile.bloodType;
-    const latestEmergency = emergencyRequests[0]; // Assume sorted by timestamp in BloodHub.jsx
-
+    const latestEmergency = emergencyRequests[0];
     if (latestEmergency && latestEmergency.bloodType === userBloodType) {
       const now = new Date();
       const emergencyTime = latestEmergency.timestamp ? new Date(latestEmergency.timestamp.seconds * 1000) : new Date();
-      const timeDiff = (now - emergencyTime) / 1000 / 60; // Minutes
-
-      if (timeDiff < 5) { // Notify if emergency is less than 5 minutes old
-        setNewEmergencyNotification(latestEmergency);
-      }
+      const timeDiff = (now - emergencyTime) / 1000 / 60;
+      if (timeDiff < 5) setNewEmergencyNotification(latestEmergency);
     }
   }, [emergencyRequests, userProfile]);
 
-  // Apply filters and update filteredEmergencies
   const applyFilters = useCallback(() => {
     if (!emergencyRequests) return [];
-
     let filtered = [...emergencyRequests];
-
-    // Blood type filter
-    if (bloodTypeFilter !== 'All') {
-      filtered = filtered.filter((e) => e.bloodType === bloodTypeFilter);
-    }
-
-    // Search filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter((e) =>
-        (e.hospital && e.hospital.toLowerCase().includes(query)) ||
-        (e.location && e.location.toLowerCase().includes(query))
+    if (bloodTypeFilter !== 'All') filtered = filtered.filter((e) => e.bloodType === bloodTypeFilter);
+    if (searchQuery) filtered = filtered.filter((e) => 
+      (e.hospital && e.hospital.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (e.location && e.location.toLowerCase().includes(searchQuery.toLowerCase()))
+    );
+    if (distanceFilter && userLocation) filtered = filtered.filter((e) => {
+      if (!e.coordinates) return false;
+      const distance = calculateDistance(
+        userLocation.lat,
+        userLocation.lng,
+        e.coordinates.latitude,
+        e.coordinates.longitude
       );
-    }
-
-    // Distance filter (Proximity-based Alerts)
-    if (distanceFilter && userLocation) {
-      filtered = filtered.filter((e) => {
-        if (!e.coordinates) return false;
-        const distance = calculateDistance(
-          userLocation.lat,
-          userLocation.lng,
-          e.coordinates.latitude,
-          e.coordinates.longitude
-        );
-        return distance <= distanceFilter;
-      });
-    }
-
-    // Blood Type Rare Alert System: Expand radius for rare blood types
+      return distance <= distanceFilter;
+    });
     filtered = filtered.map((e) => {
-      if (rareBloodTypes.includes(e.bloodType)) {
-        return { ...e, isRare: true }; // Mark as rare for UI
-      }
+      if (rareBloodTypes.includes(e.bloodType)) return { ...e, isRare: true };
       return e;
     });
-
     return filtered;
   }, [emergencyRequests, bloodTypeFilter, searchQuery, distanceFilter, userLocation]);
 
@@ -133,47 +104,35 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
   }, []);
 
   const calculateDistance = useCallback((lat1, lon1, lat2, lon2) => {
-    const R = 6371; // Radius of the Earth in km
+    const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    const distance = R * c;
-    return Math.round(distance * 10) / 10;
+    return Math.round(R * c * 10) / 10;
   }, []);
 
   const handleEmergencyResponse = useCallback(async () => {
     setIsProcessing(true);
-
     try {
-      if (!userLocation || !selectedEmergency.coordinates) {
-        throw new Error("Location data is missing");
-      }
-
+      if (!userLocation || !selectedEmergency.coordinates) throw new Error("Location data is missing");
       const distance = calculateDistance(
         userLocation.lat,
         userLocation.lng,
         selectedEmergency.coordinates.latitude,
         selectedEmergency.coordinates.longitude
       );
-
       setNearbyDonors({
         count: Math.floor(Math.random() * 10) + 3,
         estimatedTime: `${Math.floor(distance * 3)} minutes`,
         radius: `${Math.ceil(distance)} km`,
       });
-
       setCurrentView('donor-confirmation');
     } catch (error) {
       console.error("Error calculating nearby donors:", error);
-      setNearbyDonors({
-        count: 8,
-        estimatedTime: '15 minutes',
-        radius: '5 km',
-      });
+      setNearbyDonors({ count: 8, estimatedTime: '15 minutes', radius: '5 km' });
       setCurrentView('donor-confirmation');
     } finally {
       setIsProcessing(false);
@@ -183,7 +142,7 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
   const handleSMSEmergencyResponse = useCallback(async () => {
     setIsProcessing(true);
     try {
-      const response = await fetch('https://raksetu-backend.vercel.app/send-sms', { // Replace with your backend URL
+      const response = await fetch('https://raksetu-backend.vercel.app/send-sms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -191,11 +150,8 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
           message: `Donor responding to donate ${selectedEmergency.bloodType} blood at ${selectedEmergency.hospital}, ${selectedEmergency.location}`,
         }),
       });
-      if (response.ok) {
-        setCurrentView('donation-confirmed');
-      } else {
-        throw new Error('Failed to send SMS');
-      }
+      if (response.ok) setCurrentView('donation-confirmed');
+      else throw new Error('Failed to send SMS');
     } catch (error) {
       console.error("Error sending SMS:", error);
       setError("Failed to send SMS. Please try again when online.");
@@ -206,7 +162,6 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
 
   const confirmDonation = useCallback(async () => {
     setIsProcessing(true);
-
     try {
       if (selectedEmergency && selectedEmergency.id) {
         await updateDoc(doc(db, 'emergencyRequests', selectedEmergency.id), {
@@ -228,7 +183,7 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
     setSelectedEmergency(null);
     setNearbyDonors(null);
     setCurrentView('emergency-list');
-    setNewEmergencyNotification(null); // Clear notification on back
+    setNewEmergencyNotification(null);
   }, []);
 
   const EmergencyList = ({ filteredEmergencies }) => (
@@ -306,7 +261,6 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
 
   const renderSearchAndFilters = () => (
     <div className="sticky top-0 pt-2 pb-4 bg-gray-50 z-10">
-      {/* Real-time Emergency Response: Notification Banner */}
       {newEmergencyNotification && (
         <div className="mb-4 p-3 bg-yellow-100 text-yellow-800 rounded-lg flex items-center justify-between">
           <div className="flex items-center">
@@ -326,7 +280,6 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
           </button>
         </div>
       )}
-
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-2xl font-bold text-gray-800">Emergency Requests</h2>
         <button
@@ -337,7 +290,6 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
           <X size={20} />
         </button>
       </div>
-
       <div className="relative mb-4">
         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
           <Search size={18} className="text-gray-400" />
@@ -360,7 +312,6 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
           </button>
         )}
       </div>
-
       <div className="flex gap-3">
         <div className="relative flex-1">
           <button
@@ -378,7 +329,6 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
               className={`text-gray-500 transition-transform ${showBloodTypeDropdown ? 'transform rotate-180' : ''}`}
             />
           </button>
-
           {showBloodTypeDropdown && (
             <div
               className="absolute z-20 w-full mt-1 bg-white rounded-lg border border-gray-200 shadow-lg"
@@ -398,16 +348,12 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
                   aria-selected={bloodTypeFilter === type}
                 >
                   {type === 'All' ? 'All Blood Types' : type}
-                  {bloodTypeFilter === type && (
-                    <Check size={16} className="inline ml-2 text-red-600" />
-                  )}
+                  {bloodTypeFilter === type && <Check size={16} className="inline ml-2 text-red-600" />}
                 </button>
               ))}
             </div>
           )}
         </div>
-
-        {/* Proximity-based Alerts: Distance Filter */}
         <div className="relative">
           <select
             className="px-4 py-2 border border-gray-200 rounded-lg bg-white"
@@ -422,7 +368,6 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
           </select>
         </div>
       </div>
-
       {(searchQuery || bloodTypeFilter !== 'All' || distanceFilter) && (
         <div className="flex items-center justify-between mt-3 text-sm">
           <div className="flex items-center text-gray-500">
@@ -444,7 +389,6 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
           </button>
         </div>
       )}
-
       <div className="mt-4">
         <button
           className="w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700"
@@ -453,8 +397,6 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
           Create Emergency Request
         </button>
       </div>
-
-      {/* Works Without Internet: Offline Warning */}
       {!isOnline && (
         <div className="mt-4 p-3 bg-red-100 text-red-800 rounded-lg flex items-center">
           <AlertCircle size={18} className="mr-2" />
@@ -480,14 +422,12 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
             >
               <ArrowLeft size={18} className="mr-1" /> Back to emergencies
             </button>
-
             <div className="bg-white p-4 rounded-lg shadow-md">
               {selectedEmergency.isRare && (
                 <div className="mb-3 p-2 bg-purple-100 text-purple-800 rounded-lg text-sm">
                   Rare Blood Type Alert: This request is for {selectedEmergency.bloodType}, a rare blood group.
                 </div>
               )}
-
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="font-semibold text-gray-800">{selectedEmergency.hospital}</h3>
@@ -499,12 +439,10 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
                   {selectedEmergency.urgency}
                 </span>
               </div>
-
               <p className="text-sm text-gray-600 mt-2">
                 {selectedEmergency.notes ||
                   `Urgent need for ${selectedEmergency.bloodType} blood for a patient undergoing emergency treatment.`}
               </p>
-
               <div className="mt-4 grid grid-cols-3 gap-2 text-center border-t border-b border-gray-100 py-3">
                 <div>
                   <div className="text-gray-500 text-xs">Units Needed</div>
@@ -534,7 +472,6 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
                   </div>
                 </div>
               </div>
-
               <div className="mt-4">
                 <h5 className="font-medium mb-2">Contact</h5>
                 <div className="flex items-center gap-2">
@@ -552,7 +489,6 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
                   )}
                 </div>
               </div>
-
               <div className="mt-4 flex gap-2">
                 {isOnline ? (
                   <>
@@ -602,7 +538,6 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
             >
               <ArrowLeft size={18} className="mr-1" /> Back to emergency details
             </button>
-
             <div className="bg-white p-4 rounded-lg shadow-md text-center">
               <div className="h-16 w-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
                 <Check size={32} className="text-green-600" />
@@ -611,7 +546,6 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
               <p className="text-gray-600 mb-4">
                 We found {nearbyDonors.count} potential donors within {nearbyDonors.radius}
               </p>
-
               <div className="border-t border-b border-gray-100 py-4 my-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-gray-500">Your blood type:</span>
@@ -626,11 +560,9 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
                   <span className="font-semibold">{selectedEmergency.hospital}</span>
                 </div>
               </div>
-
               <p className="text-sm text-gray-600 mb-4">
                 By confirming, you agree to donate blood at {selectedEmergency.hospital}.
               </p>
-
               <button
                 className="w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700"
                 onClick={confirmDonation}
@@ -638,7 +570,6 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
               >
                 {isProcessing ? "Processing..." : "Confirm Donation"}
               </button>
-
               <button
                 className="w-full mt-2 text-gray-600 py-2"
                 onClick={() => setCurrentView('emergency-detail')}
@@ -660,7 +591,6 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
               <p className="text-gray-600 mb-6">
                 Thank you for being a lifesaver. The hospital has been notified of your arrival.
               </p>
-
               <div className="bg-gray-50 p-4 rounded-lg mb-6">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-gray-500">Hospital:</span>
@@ -681,7 +611,6 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
                   </span>
                 </div>
               </div>
-
               <div className="flex flex-col gap-3">
                 <a
                   href={`https://www.google.com/maps/dir/?api=1&destination=${selectedEmergency.coordinates.latitude},${selectedEmergency.coordinates.longitude}`}
@@ -699,7 +628,6 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
                   View Other Emergencies
                 </button>
               </div>
-
               <div className="mt-6 pt-6 border-t border-gray-100 text-sm text-gray-500">
                 <p>You've earned 150 Impact Points for this donation!</p>
               </div>
@@ -713,16 +641,10 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
 
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (showBloodTypeDropdown) {
-        setShowBloodTypeDropdown(false);
-      }
+      if (showBloodTypeDropdown) setShowBloodTypeDropdown(false);
     };
-
     document.addEventListener('mousedown', handleClickOutside);
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showBloodTypeDropdown]);
 
   return (
@@ -731,7 +653,6 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
       <div className="flex-1 overflow-y-auto">
         {renderCurrentView()}
       </div>
-
       {currentView === 'emergency-list' && (
         <div className="sticky bottom-0 bg-white border-t border-gray-200 px-4 py-3 text-sm text-gray-600">
           {filteredEmergencies.length} active {filteredEmergencies.length === 1 ? 'request' : 'requests'}

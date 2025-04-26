@@ -4,7 +4,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 const bloodTypes = ['All', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
-const rareBloodTypes = ['O h']; // Bombay Blood Group
+const rareBloodTypes = ['O h'];
 
 const customIcon = new L.Icon({
   iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
@@ -18,7 +18,7 @@ const rareBloodIcon = new L.Icon({
   iconSize: [25, 41],
   iconAnchor: [12, 41],
   popupAnchor: [0, -41],
-  className: 'hue-rotate-90' // Custom CSS to change color for rare blood types
+  className: 'hue-rotate-90'
 });
 
 const newEmergencyIcon = new L.Icon({
@@ -26,7 +26,7 @@ const newEmergencyIcon = new L.Icon({
   iconSize: [25, 41],
   iconAnchor: [12, 41],
   popupAnchor: [0, -41],
-  className: 'animate-pulse' // Add pulsating effect for new emergencies
+  className: 'animate-pulse'
 });
 
 const nearbyIcon = new L.Icon({
@@ -34,7 +34,7 @@ const nearbyIcon = new L.Icon({
   iconSize: [25, 41],
   iconAnchor: [12, 41],
   popupAnchor: [0, -41],
-  className: 'hue-rotate-180' // Different color for nearby emergencies
+  className: 'hue-rotate-180'
 });
 
 const userLocationIcon = new L.Icon({
@@ -47,16 +47,13 @@ const userLocationIcon = new L.Icon({
 export default function EmergencyMapSection({ userLocation, emergencyRequests = [], bloodDrives = [], setActiveSection }) {
   const [bloodTypeFilter, setBloodTypeFilter] = useState('All');
   const [filteredEmergencies, setFilteredEmergencies] = useState([]);
-  const [isOnline, setIsOnline] = useState(navigator.onLine); // New: For offline detection
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
-  // Offline detection
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
-
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
@@ -71,38 +68,17 @@ export default function EmergencyMapSection({ userLocation, emergencyRequests = 
     }
   }, [bloodTypeFilter, emergencyRequests]);
 
-  // Calculate mock coordinates based on hospital location
-  const getEmergencyCoordinates = (emergency) => {
-    const baseCoords = userLocation || { lat: 28.6139, lng: 77.2090 };
-    const hashCode = (str) => {
-      let hash = 0;
-      for (let i = 0; i < str.length; i++) {
-        hash = str.charCodeAt(i) + ((hash << 5) - hash);
-      }
-      return hash;
-    };
-    const offset = hashCode(emergency.hospital) % 100 / 1000;
-    return {
-      lat: baseCoords.lat + (Math.random() - 0.5) * 0.1,
-      lng: baseCoords.lng + (Math.random() - 0.5) * 0.1
-    };
-  };
-
-  // Calculate distance for proximity-based alerts
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371; // Radius of the Earth in km
+    const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    const distance = R * c;
-    return Math.round(distance * 10) / 10;
+    return Math.round(R * c * 10) / 10;
   };
 
-  // Determine marker icon based on emergency status
   const getMarkerIcon = (emergency) => {
     const isRare = rareBloodTypes.includes(emergency.bloodType);
     const isNew = emergency.timestamp && (new Date() - new Date(emergency.timestamp.seconds * 1000)) / 1000 / 60 < 5;
@@ -111,7 +87,7 @@ export default function EmergencyMapSection({ userLocation, emergencyRequests = 
       userLocation.lng,
       emergency.coordinates.latitude,
       emergency.coordinates.longitude
-    ) <= 10; // Within 10 km
+    ) <= 10;
 
     if (isRare) return rareBloodIcon;
     if (isNew) return newEmergencyIcon;
@@ -142,7 +118,11 @@ export default function EmergencyMapSection({ userLocation, emergencyRequests = 
                   attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                 />
                 {filteredEmergencies.map((emergency) => {
-                  const coords = emergency.coordinates || getEmergencyCoordinates(emergency);
+                  if (!emergency.coordinates) return null;
+                  const coords = {
+                    lat: emergency.coordinates.latitude,
+                    lng: emergency.coordinates.longitude
+                  };
                   const isRare = rareBloodTypes.includes(emergency.bloodType);
                   return (
                     <Marker
@@ -153,20 +133,19 @@ export default function EmergencyMapSection({ userLocation, emergencyRequests = 
                       <Popup>
                         <div>
                           <h4 className="font-semibold">{emergency.hospital}</h4>
+                          <p><strong>Location:</strong> {emergency.location}</p>
                           <p><strong>Blood Type:</strong> {emergency.bloodType}{isRare ? ' (Rare)' : ''}</p>
                           <p><strong>Urgency:</strong> {emergency.urgency}</p>
-                          <p><strong>Units Needed:</strong> {emergency.units}</p>
+                          <p><strong>Units Needed:</strong> {emergency.units || 1}</p>
                           <p><strong>Posted:</strong> {emergency.timestamp ? new Date(emergency.timestamp.seconds * 1000).toLocaleString() : 'Recently'}</p>
-                          {emergency.coordinates && (
-                            <a
-                              href={`https://www.google.com/maps/dir/?api=1&destination=${emergency.coordinates.latitude},${emergency.coordinates.longitude}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-600 hover:underline"
-                            >
-                              Navigate
-                            </a>
-                          )}
+                          <a
+                            href={`https://www.google.com/maps/dir/?api=1&destination=${coords.lat},${coords.lng}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:underline"
+                          >
+                            Navigate
+                          </a>
                         </div>
                       </Popup>
                     </Marker>
