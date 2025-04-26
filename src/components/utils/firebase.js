@@ -1,12 +1,8 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
-import { getMessaging } from 'firebase/messaging'; // Add FCM
-
-// Declare auth, db, and messaging variables globally
-let auth;
-let db;
-let messaging;
+import { getMessaging } from 'firebase/messaging';
+import { getStorage } from "firebase/storage";
 
 // Validate environment variables
 const requiredEnvVars = [
@@ -16,7 +12,7 @@ const requiredEnvVars = [
   'VITE_FIREBASE_STORAGE_BUCKET',
   'VITE_FIREBASE_MESSAGING_SENDER_ID',
   'VITE_FIREBASE_APP_ID',
-  'VITE_VAPID_KEY', // Add VAPID key for FCM (get from Firebase Console)
+  'VITE_VAPID_KEY',
 ];
 
 requiredEnvVars.forEach((envVar) => {
@@ -35,18 +31,23 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
+// Declare auth, db, messaging, and storage variables globally
+let app;
+let auth;
+let db;
+let messaging;
+let storage;
 
-
-// Initialize Firebase
 try {
-  const app = initializeApp(firebaseConfig);
+  app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   db = getFirestore(app);
-  messaging = getMessaging(app); // Initialize messaging
+  messaging = getMessaging(app);
+  storage = getStorage(app); // Now app is defined before use
 } catch (error) {
   console.error('Firebase initialization error:', error);
   throw new Error('Failed to initialize Firebase. Check your configuration.');
 }
 
-// Export auth, db, messaging, and phone auth utilities
-export { auth, db, messaging, RecaptchaVerifier, signInWithPhoneNumber };
+// Export auth, db, messaging, storage, and phone auth utilities
+export { auth, db, messaging, storage, RecaptchaVerifier, signInWithPhoneNumber };

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, collection, onSnapshot, query, orderBy, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, onSnapshot, query, orderBy, where, getDocs } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
 import { MapPin, Droplet, Bell, Menu, X, LogIn, ArrowLeft } from 'lucide-react';
 import { auth, db, messaging } from '../utils/firebase';
@@ -45,94 +45,130 @@ export default function BloodHub() {
     livesImpacted: 0,
     activeRequests: 0
   });
+  const [isUserProfileLoading, setIsUserProfileLoading] = useState(true);
 
   // Auth state listener with FCM subscription and donations listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setIsUserProfileLoading(true);
       if (user) {
         setIsLoggedIn(true);
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists()) {
-          const profileData = userDoc.data();
-          setUserProfile({
-            ...profileData,
-            name: profileData.name || user.displayName || 'User',
-            email: profileData.email || user.email || 'user@example.com',
-            id: user.uid
-          });
+        try {
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          
+          if (userDoc.exists()) {
+            const profileData = userDoc.data();
+            setUserProfile({
+              ...profileData,
+              name: profileData.name || user.displayName || 'User',
+              email: profileData.email || user.email || 'user@example.com',
+              id: user.uid
+            });
 
-          if (profileData.bloodType) {
-            const token = await getToken(messaging, { vapidKey: import.meta.env.VITE_VAPID_KEY });
-            fetch('https://iid.googleapis.com/iid/v1:batchAdd', {
-              method: 'POST',
-              headers: { 'Authorization': `key=${import.meta.env.VITE_SERVER_KEY}` },
-              body: JSON.stringify({
-                to: `/topics/bloodType_${profileData.bloodType}`,
-                registration_tokens: [token]
-              })
-            }).catch((error) => console.error('FCM subscription error:', error));
+            if (profileData.bloodType) {
+              // Subscribe to blood type notifications
+              try {
+                const token = await getToken(messaging, { vapidKey: import.meta.env.VITE_VAPID_KEY });
+                fetch('https://iid.googleapis.com/iid/v1:batchAdd', {
+                  method: 'POST',
+                  headers: { 'Authorization': `key=${import.meta.env.VITE_SERVER_KEY}` },
+                  body: JSON.stringify({
+                    to: `/topics/bloodType_${profileData.bloodType}`,
+                    registration_tokens: [token]
+                  })
+                }).catch((error) => console.error('FCM subscription error:', error));
+              } catch (fcmError) {
+                console.warn('FCM subscription failed:', fcmError);
+              }
+            }
+          } else {
+            // Create user document if it doesn't exist
+            const userData = {
+              name: user.displayName || 'User',
+              email: user.email,
+              bloodType: '',
+              phone: user.phoneNumber || '',
+              photoURL: user.photoURL || '',
+              createdAt: new Date().toISOString()
+            };
+            
+            await setDoc(doc(db, 'users', user.uid), userData);
+            setUserProfile({
+              ...userData,
+              id: user.uid
+            });
           }
-        } else {
-          await setDoc(doc(db, 'users', user.uid), {
-            name: user.displayName || 'User',
-            email: user.email,
-            bloodType: '',
-            phone: ''
-          });
-          setUserProfile({
-            name: user.displayName || 'User',
-            email: user.email,
-            id: user.uid
-          });
+
+          // Listen to appointments
+          const appointmentsQuery = query(
+            collection(db, 'appointments'),
+            where('userId', '==', user.uid)
+          );
+
+          let appointmentsList = [];
+          let drivesList = [];
+
+          const appointmentsUnsubscribe = onSnapshot(appointmentsQuery, (snapshot) => {
+            appointmentsList = snapshot.docs.map(doc => ({
+              id: doc.id,
+              type: 'appointment',
+              ...doc.data()
+            }));
+            setDonations([...appointmentsList, ...drivesList]);
+            console.log('Fetched Appointments:', appointmentsList);
+          }, (error) => console.error('Error fetching appointments:', error));
+
+          // Listen to userDrives
+          const userDrivesQuery = query(
+            collection(db, 'userDrives'),
+            where('userId', '==', user.uid)
+          );
+
+          const userDrivesUnsubscribe = onSnapshot(userDrivesQuery, (snapshot) => {
+            drivesList = snapshot.docs.map(doc => ({
+              id: doc.id,
+              type: 'drive',
+              ...doc.data()
+            }));
+            setDonations([...appointmentsList, ...drivesList]);
+            console.log('Fetched User Drives:', drivesList);
+          }, (error) => console.error('Error fetching user drives:', error));
+
+          // Update local storage user status
+          localStorage.setItem('isLoggedIn', 'true');
+          localStorage.setItem('userId', user.uid);
+
+          return () => {
+            appointmentsUnsubscribe();
+            userDrivesUnsubscribe();
+          };
+        } catch (error) {
+          console.error("Error loading user profile:", error);
+        } finally {
+          setIsUserProfileLoading(false);
         }
-
-        // Listen to appointments
-        const appointmentsQuery = query(
-          collection(db, 'appointments'),
-          where('userId', '==', user.uid)
-        );
-
-        let appointmentsList = [];
-        let drivesList = [];
-
-        const appointmentsUnsubscribe = onSnapshot(appointmentsQuery, (snapshot) => {
-          appointmentsList = snapshot.docs.map(doc => ({
-            id: doc.id,
-            type: 'appointment',
-            ...doc.data()
-          }));
-          setDonations([...appointmentsList, ...drivesList]);
-          console.log('Fetched Appointments:', appointmentsList);
-        }, (error) => console.error('Error fetching appointments:', error));
-
-        // Listen to userDrives
-        const userDrivesQuery = query(
-          collection(db, 'userDrives'),
-          where('userId', '==', user.uid)
-        );
-
-        const userDrivesUnsubscribe = onSnapshot(userDrivesQuery, (snapshot) => {
-          drivesList = snapshot.docs.map(doc => ({
-            id: doc.id,
-            type: 'drive',
-            ...doc.data()
-          }));
-          setDonations([...appointmentsList, ...drivesList]);
-          console.log('Fetched User Drives:', drivesList);
-        }, (error) => console.error('Error fetching user drives:', error));
-
-        return () => {
-          appointmentsUnsubscribe();
-          userDrivesUnsubscribe();
-        };
       } else {
+        // User is signed out
         setIsLoggedIn(false);
         setUserProfile(null);
         setDonations([]);
+        
+        // Clear local storage
+        localStorage.removeItem('isLoggedIn');
+        localStorage.removeItem('userId');
+        setIsUserProfileLoading(false);
       }
     });
 
     return () => unsubscribe();
+  }, []);
+
+  // Check local storage on initial load
+  useEffect(() => {
+    const storedLoggedIn = localStorage.getItem('isLoggedIn') === 'true';
+    if (storedLoggedIn) {
+      setIsLoggedIn(storedLoggedIn);
+    }
   }, []);
 
   // Get user location and fetch nearby blood banks
@@ -145,7 +181,8 @@ export default function BloodHub() {
           fetchNearbyBloodBanks(latitude, longitude);
         },
         () => {
-          setUserLocation({ lat: 28.6139, lng: 77.2090 }); // Default to Delhi
+          // Default to Delhi if location permission denied
+          setUserLocation({ lat: 28.6139, lng: 77.2090 });
           fetchNearbyBloodBanks(28.6139, 77.2090);
         }
       );
@@ -203,11 +240,8 @@ export default function BloodHub() {
         };
       });
       console.log('Fetched Emergency Requests:', requestsList);
-      requestsList.forEach((req, index) => {
-        console.log(`Request ${index} Coordinates:`, req.coordinates);
-      });
+      
       setEmergencyRequests(requestsList);
-
       setStats(prev => ({
         ...prev,
         activeRequests: requestsList.length
@@ -219,13 +253,13 @@ export default function BloodHub() {
     return () => unsubscribe();
   }, []);
 
-  // Fetch blood drives from Firestore only (removed external fetch)
+  // Fetch blood drives from Firestore
   useEffect(() => {
     const fetchBloodDrives = async () => {
       try {
         const localDrivesQuery = query(
           collection(db, 'bloodDrives'),
-          where('endDate', '>=', new Date()),
+          where('endDate', '>=', new Date().toISOString()),
           orderBy('endDate', 'asc')
         );
 
@@ -248,9 +282,6 @@ export default function BloodHub() {
         });
 
         console.log('Fetched Blood Drives:', localDrives);
-        localDrives.forEach((drive, index) => {
-          console.log(`Blood Drive ${index} Coordinates:`, drive.coordinates);
-        });
         setBloodDrives(localDrives);
       } catch (error) {
         console.error('Error fetching blood drives:', error);
@@ -259,9 +290,32 @@ export default function BloodHub() {
     };
 
     fetchBloodDrives();
+    // Refresh blood drives every 15 minutes
     const interval = setInterval(fetchBloodDrives, 900000);
     return () => clearInterval(interval);
   }, []);
+
+  // Fetch app statistics from Firestore
+  useEffect(() => {
+    const fetchStatistics = async () => {
+      try {
+        const statsDoc = await getDoc(doc(db, 'statistics', 'global'));
+        if (statsDoc.exists()) {
+          const statsData = statsDoc.data();
+          setStats({
+            totalDonors: statsData.totalDonors || 0,
+            totalDonations: statsData.totalDonations || 0,
+            livesImpacted: statsData.livesImpacted || 0,
+            activeRequests: emergencyRequests.length
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching statistics:', error);
+      }
+    };
+
+    fetchStatistics();
+  }, [emergencyRequests.length]);
 
   const getUrgencyColor = (urgency) => {
     switch (urgency) {
@@ -309,10 +363,18 @@ export default function BloodHub() {
               setActiveSection={setActiveSection}
               setShowAuthModal={setShowAuthModal}
               setAuthMode={setAuthMode}
+              isLoggedIn={isLoggedIn}
             />
           </>
         )}
-        {activeSection === 'profile' && <ProfileSection userProfile={userProfile} />}
+        {activeSection === 'profile' && (
+          <ErrorBoundary>
+            <ProfileSection 
+              userProfile={userProfile} 
+              isLoading={isUserProfileLoading}
+            />
+          </ErrorBoundary>
+        )}
         {activeSection === 'emergency' && (
           <EmergencySection
             setShowEmergencyModal={setShowEmergencyModal}
@@ -320,6 +382,9 @@ export default function BloodHub() {
             emergencyRequests={emergencyRequests}
             userLocation={userLocation}
             userProfile={userProfile}
+            isLoggedIn={isLoggedIn}
+            setShowAuthModal={setShowAuthModal}
+            setAuthMode={setAuthMode}
           />
         )}
         {activeSection === 'donate' && (
@@ -330,6 +395,7 @@ export default function BloodHub() {
             setAuthMode={setAuthMode}
             bloodDrives={bloodDrives}
             bloodBanks={bloodBanks}
+            isLoggedIn={isLoggedIn}
           />
         )}
         {activeSection === 'track' && (
@@ -357,6 +423,9 @@ export default function BloodHub() {
         setShow={setShowEmergencyModal}
         setShowSuccess={setShowRequestSuccessModal}
         userLocation={userLocation}
+        isLoggedIn={isLoggedIn}
+        setShowAuthModal={setShowAuthModal}
+        setAuthMode={setAuthMode}
       />
       <RequestSuccessModal
         show={showRequestSuccessModal}
