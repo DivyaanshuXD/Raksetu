@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, collection, onSnapshot, query, orderBy, getDocs } from 'firebase/firestore';
+import { doc, getDoc, collection, onSnapshot, query, where, orderBy, getDocs } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
 import { MapPin, Droplet, Bell, Menu, X, LogIn, ArrowLeft } from 'lucide-react';
 import { auth, db, messaging } from '../utils/firebase';
@@ -20,6 +20,7 @@ import AuthModal from './AuthModal';
 import EmergencyRequestModal from './EmergencyRequestModal';
 import RequestSuccessModal from './RequestSuccessModal';
 import CTASection from './CTASection';
+import ErrorBoundary from './ErrorBoundary'; // Adjust the path
 import ProfileSection from './ProfileSection';
 
 const bloodTypes = ['All', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
@@ -99,15 +100,30 @@ export default function BloodHub() {
   useEffect(() => {
     const emergencyQuery = query(
       collection(db, 'emergencyRequests'),
-      orderBy('timestamp', 'desc') // Order by timestamp
+      orderBy('timestamp', 'desc')
     );
     
     const unsubscribe = onSnapshot(emergencyQuery, (snapshot) => {
-      const requestsList = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      console.log('Fetched Emergency Requests:', requestsList); // Debug log
+      const requestsList = snapshot.docs.map(doc => {
+        const data = doc.data();
+        // Normalize coordinates format
+        let normalizedCoordinates = { latitude: 28.6139, longitude: 77.2090 }; // Default to Delhi
+        if (data.coordinates) {
+          normalizedCoordinates = {
+            latitude: data.coordinates.latitude || data.coordinates.lat || 28.6139,
+            longitude: data.coordinates.longitude || data.coordinates.lng || 77.2090
+          };
+        }
+        return {
+          id: doc.id,
+          ...data,
+          coordinates: normalizedCoordinates
+        };
+      });
+      console.log('Fetched Emergency Requests:', requestsList);
+      requestsList.forEach((req, index) => {
+        console.log(`Request ${index} Coordinates:`, req.coordinates);
+      });
       setEmergencyRequests(requestsList);
       
       setStats(prev => ({
@@ -132,20 +148,51 @@ export default function BloodHub() {
         );
         
         const localDrivesSnapshot = await getDocs(localDrivesQuery);
-        const localDrives = localDrivesSnapshot.docs.map(doc => ({
-          id: doc.id,
-          source: 'raksetu',
-          ...doc.data()
-        }));
+        const localDrives = localDrivesSnapshot.docs.map(doc => {
+          const data = doc.data();
+          // Normalize coordinates format for blood drives
+          let normalizedCoordinates = { latitude: 28.6139, longitude: 77.2090 }; // Default to Delhi
+          if (data.coordinates) {
+            normalizedCoordinates = {
+              latitude: data.coordinates.latitude || data.coordinates.lat || 28.6139,
+              longitude: data.coordinates.longitude || data.coordinates.lng || 77.2090
+            };
+          }
+          return {
+            id: doc.id,
+            source: 'raksetu',
+            ...data,
+            coordinates: normalizedCoordinates
+          };
+        });
         
         const externalDrives = await fetch('https://raksetu-backend.vercel.app/blood-drives')
           .then(response => response.json())
+          .then(drives => drives.map(drive => {
+            // Normalize coordinates for external drives
+            let normalizedCoordinates = { latitude: 28.6139, longitude: 77.2090 };
+            if (drive.coordinates) {
+              normalizedCoordinates = {
+                latitude: drive.coordinates.latitude || drive.coordinates.lat || 28.6139,
+                longitude: drive.coordinates.longitude || drive.coordinates.lng || 77.2090
+              };
+            }
+            return {
+              ...drive,
+              coordinates: normalizedCoordinates
+            };
+          }))
           .catch(error => {
             console.error('Error fetching external blood drives:', error);
             return [];
           });
         
-        setBloodDrives([...localDrives, ...externalDrives]);
+        const allDrives = [...localDrives, ...externalDrives];
+        console.log('Fetched Blood Drives:', allDrives);
+        allDrives.forEach((drive, index) => {
+          console.log(`Blood Drive ${index} Coordinates:`, drive.coordinates);
+        });
+        setBloodDrives(allDrives);
       } catch (error) {
         console.error('Error fetching blood drives:', error);
       }
@@ -198,29 +245,31 @@ export default function BloodHub() {
         userProfile={userProfile}
       />
       <main>
-        {activeSection === 'home' && (
-          <>
-            <HeroSection
-              setActiveSection={setActiveSection}
-              setShowEmergencyModal={setShowEmergencyModal}
-              emergencyRequests={emergencyRequests}
-            />
-            <FeaturesSection />
-            <EmergencyMapSection 
-              userLocation={userLocation}
-              emergencyRequests={emergencyRequests}
-              bloodDrives={bloodDrives}
-              setActiveSection={setActiveSection}
-            />
-            <StatsSection stats={stats} />
-            <TestimonialsSection />
-            <CTASection
-              setActiveSection={setActiveSection}
-              setShowAuthModal={setShowAuthModal}
-              setAuthMode={setAuthMode}
-            />
-          </>
-        )}
+      {activeSection === 'home' && (
+  <>
+    <HeroSection
+      setActiveSection={setActiveSection}
+      setShowEmergencyModal={setShowEmergencyModal}
+      emergencyRequests={emergencyRequests}
+    />
+    <FeaturesSection />
+    <ErrorBoundary>
+      <EmergencyMapSection 
+        userLocation={userLocation}
+        emergencyRequests={emergencyRequests}
+        bloodDrives={bloodDrives}
+        setActiveSection={setActiveSection}
+      />
+    </ErrorBoundary>
+    <StatsSection stats={stats} />
+    <TestimonialsSection />
+    <CTASection
+      setActiveSection={setActiveSection}
+      setShowAuthModal={setShowAuthModal}
+      setAuthMode={setAuthMode}
+    />
+  </>
+)}
         {activeSection === 'profile' && <ProfileSection userProfile={userProfile} />}
         {activeSection === 'emergency' && (
           <EmergencySection

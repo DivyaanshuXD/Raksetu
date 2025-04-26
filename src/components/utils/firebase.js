@@ -35,8 +35,7 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-// Log the config for debugging
-console.log('Firebase Config:', firebaseConfig);
+
 
 // Initialize Firebase
 try {

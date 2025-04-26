@@ -2,24 +2,24 @@ import { Heart, User, Award, Quote } from 'lucide-react';
 
 const testimonials = [
   { 
-    name: 'Arjun Mehta', 
+    name: 'Divyaanshu Tonk', 
     bloodType: 'O+', 
     message: 'Raksetu helped me find donors within minutes during my father\'s emergency surgery.', 
-    avatar: '/api/placeholder/60/60',
+    avatar: 'https://via.placeholder.com/60x60',
     highlight: 'Emergency Response'
   },
   { 
-    name: 'Priya Singh', 
+    name: 'Ajay Reddy', 
     bloodType: 'AB-', 
     message: 'The tracking feature let me know exactly when my donation was used. It\'s incredibly fulfilling.', 
-    avatar: '/api/placeholder/60/60',
+    avatar: 'https://via.placeholder.com/60x60',
     highlight: 'Donation Tracking'
   },
   { 
-    name: 'Dr. Sharma', 
+    name: 'Prajwal Upadhyay', 
     role: 'Cardiac Surgeon', 
     message: 'The real-time availability map has revolutionized how we handle blood requirements during surgeries.', 
-    avatar: '/api/placeholder/60/60',
+    avatar: 'https://via.placeholder.com/60x60',
     highlight: 'Medical Professional'
   },
 ];
