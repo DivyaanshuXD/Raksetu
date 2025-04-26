@@ -1,67 +1,143 @@
-import { Users, Heart, Clock, MapPin } from 'lucide-react';
+import { Users, Heart, Clock, MapPin, Award, Shield, ArrowRight, ExternalLink } from 'lucide-react';
 
 export default function AboutSection() {
   return (
-    <section className="py-16 bg-gray-50">
-      <div className="container mx-auto px-4">
-        <h2 className="text-3xl font-bold mb-6 text-center">About Raksetu</h2>
-        <p className="text-gray-600 max-w-3xl mx-auto mb-8 text-center">
-          Raksetu is India's first AI-powered blood donation network, designed to bridge the gap between donors, recipients, and hospitals. Our mission is to save lives by ensuring timely blood availability across the country.
-        </p>
+    <section className="py-24 bg-gradient-to-b from-white to-gray-50 relative overflow-hidden">
+      {/* Background Elements */}
+      <div className="absolute top-0 right-0 w-64 h-64 bg-red-50 rounded-full -mr-32 -mt-32 opacity-70"></div>
+      <div className="absolute bottom-0 left-0 w-80 h-80 bg-red-50 rounded-full -ml-40 -mb-40 opacity-70"></div>
+      
+      <div className="container mx-auto px-4 relative z-10">
+        {/* Section Header */}
+        <div className="flex flex-col items-center mb-16">
+          <span className="text-red-600 font-medium text-sm uppercase tracking-wider mb-2">Our Story</span>
+          <h2 className="text-4xl font-bold mb-4 text-gray-900 text-center">About Raksetu</h2>
+          <div className="w-24 h-1 bg-red-600 mb-6 rounded-full"></div>
+          <p className="text-gray-600 max-w-3xl mx-auto text-center text-lg leading-relaxed">
+            Raksetu is India's first AI-powered blood donation network, designed to bridge the gap between donors, recipients, and hospitals. Our mission is to save lives by ensuring timely blood availability across the country.
+          </p>
+        </div>
 
-        <div className="grid md:grid-cols-2 gap-8 mb-12">
-          <div className="bg-white p-6 rounded-xl shadow-sm">
-            <h3 className="text-xl font-semibold mb-4">Our Mission</h3>
-            <p className="text-gray-600">
-              To leverage technology to create a seamless blood donation ecosystem, reducing emergency response times and increasing donor participation. We aim to save over 1 million lives by 2030.
+        {/* Mission & Vision */}
+        <div className="grid md:grid-cols-2 gap-8 mb-16">
+          <div className="bg-white p-8 rounded-xl shadow-md hover:shadow-lg transition-all duration-300 border-t-4 border-red-600 relative group">
+            <div className="absolute top-6 right-6 opacity-10 group-hover:opacity-20 transition-opacity">
+              <Shield size={64} strokeWidth={1} />
+            </div>
+            <h3 className="text-2xl font-semibold mb-4 text-gray-800 flex items-center">
+              <span className="bg-red-100 text-red-600 p-2 rounded-lg mr-3">
+                <Heart size={20} />
+              </span>
+              Our Mission
+            </h3>
+            <p className="text-gray-600 leading-relaxed">
+              To leverage technology to create a seamless blood donation ecosystem, reducing emergency response times and increasing donor participation. We aim to save over <span className="font-semibold text-red-600">1 million lives by 2030</span>.
             </p>
+            <div className="mt-6 pt-4 border-t border-gray-100">
+              <span className="text-sm text-gray-500 flex items-center">
+                <Award size={16} className="mr-2 text-red-500" />
+                Founded in 2025 with a commitment to saving lives
+              </span>
+            </div>
           </div>
-          <div className="bg-white p-6 rounded-xl shadow-sm">
-            <h3 className="text-xl font-semibold mb-4">Our Vision</h3>
-            <p className="text-gray-600">
-              A world where no one dies due to lack of blood. We strive to make blood donation accessible, efficient, and impactful for every Indian.
+          
+          <div className="bg-white p-8 rounded-xl shadow-md hover:shadow-lg transition-all duration-300 border-t-4 border-red-600 relative group">
+            <div className="absolute top-6 right-6 opacity-10 group-hover:opacity-20 transition-opacity">
+              <Award size={64} strokeWidth={1} />
+            </div>
+            <h3 className="text-2xl font-semibold mb-4 text-gray-800 flex items-center">
+              <span className="bg-red-100 text-red-600 p-2 rounded-lg mr-3">
+                <Users size={20} />
+              </span>
+              Our Vision
+            </h3>
+            <p className="text-gray-600 leading-relaxed">
+              A world where no one dies due to lack of blood. We strive to make blood donation accessible, efficient, and impactful for every Indian, creating a healthier and more compassionate society.
             </p>
+            <div className="mt-6 pt-4 border-t border-gray-100">
+              <span className="text-sm text-gray-500 flex items-center">
+                <Award size={16} className="mr-2 text-red-500" />
+                Recognized as a leader in healthcare innovation
+              </span>
+            </div>
           </div>
         </div>
 
-        <div className="text-center">
-          <h3 className="text-2xl font-semibold mb-4">Why Choose Raksetu?</h3>
-          <div className="grid md:grid-cols-4 gap-6">
-            <div className="text-center">
-              <div className="h-16 w-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-3">
+        {/* Stats & Features */}
+        <div className="text-center mb-20">
+          <div className="inline-block bg-red-50 px-4 py-1 rounded-full text-red-600 text-sm font-medium mb-4">Why Choose Raksetu?</div>
+          <h3 className="text-2xl font-bold mb-10 text-gray-800">Making Blood Donation Accessible and Efficient</h3>
+          
+          <div className="grid md:grid-cols-4 gap-8">
+            <div className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 group">
+              <div className="h-16 w-16 bg-gradient-to-br from-red-100 to-red-200 rounded-full flex items-center justify-center mx-auto mb-5 group-hover:scale-110 transition-transform duration-300">
                 <Users className="text-red-600" size={32} />
               </div>
-              <h4 className="font-medium">Community Driven</h4>
-              <p className="text-gray-600 text-sm">Powered by 58,000+ donors nationwide.</p>
+              <h4 className="font-semibold text-lg mb-2">Community Driven</h4>
+              <p className="text-gray-600">Powered by 58,000+ donors nationwide.</p>
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <span className="text-red-600 font-medium text-sm">Growing Daily</span>
+              </div>
             </div>
-            <div className="text-center">
-              <div className="h-16 w-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            
+            <div className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 group">
+              <div className="h-16 w-16 bg-gradient-to-br from-red-100 to-red-200 rounded-full flex items-center justify-center mx-auto mb-5 group-hover:scale-110 transition-transform duration-300">
                 <Heart className="text-red-600" size={32} />
               </div>
-              <h4 className="font-medium">Life-Saving Impact</h4>
-              <p className="text-gray-600 text-sm">Over 124,000 lives saved to date.</p>
+              <h4 className="font-semibold text-lg mb-2">Life-Saving Impact</h4>
+              <p className="text-gray-600">Over 124,000 lives saved to date.</p>
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <span className="text-red-600 font-medium text-sm">Every Donation Counts</span>
+              </div>
             </div>
-            <div className="text-center">
-              <div className="h-16 w-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            
+            <div className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 group">
+              <div className="h-16 w-16 bg-gradient-to-br from-red-100 to-red-200 rounded-full flex items-center justify-center mx-auto mb-5 group-hover:scale-110 transition-transform duration-300">
                 <Clock className="text-red-600" size={32} />
               </div>
-              <h4 className="font-medium">Real-Time Response</h4>
-              <p className="text-gray-600 text-sm">Emergencies resolved in minutes.</p>
+              <h4 className="font-semibold text-lg mb-2">Real-Time Response</h4>
+              <p className="text-gray-600">Emergencies resolved in minutes.</p>
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <span className="text-red-600 font-medium text-sm">AI-Powered Matching</span>
+              </div>
             </div>
-            <div className="text-center">
-              <div className="h-16 w-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            
+            <div className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 group">
+              <div className="h-16 w-16 bg-gradient-to-br from-red-100 to-red-200 rounded-full flex items-center justify-center mx-auto mb-5 group-hover:scale-110 transition-transform duration-300">
                 <MapPin className="text-red-600" size={32} />
               </div>
-              <h4 className="font-medium">Nationwide Reach</h4>
-              <p className="text-gray-600 text-sm">Serving 1,230+ hospitals.</p>
+              <h4 className="font-semibold text-lg mb-2">Nationwide Reach</h4>
+              <p className="text-gray-600">Serving 1,230+ hospitals.</p>
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <span className="text-red-600 font-medium text-sm">Expanding Network</span>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="mt-12 text-center">
-          <a href="#" className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors">
-            Join Our Team
-          </a>
+        {/* Join Our Team Section */}
+        <div className="bg-gradient-to-r from-red-600 to-red-700 rounded-2xl p-8 md:p-12 shadow-xl text-white relative overflow-hidden">
+          <div className="absolute right-0 bottom-0 opacity-10">
+            <Users size={240} strokeWidth={1} />
+          </div>
+          
+          <div className="md:max-w-3xl relative z-10">
+            <h3 className="text-3xl font-bold mb-4">Join Our Mission</h3>
+            <p className="text-red-100 text-lg mb-8">
+              We're looking for passionate individuals who want to make a difference. Join our team and help us revolutionize blood donation in India.
+            </p>
+            
+            <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
+              <a href="#" className="bg-white text-red-600 hover:bg-red-50 px-8 py-3 rounded-lg font-semibold transition-colors inline-flex items-center justify-center shadow-md hover:shadow-lg">
+                Join Our Team
+                <ArrowRight size={18} className="ml-2" />
+              </a>
+              <a href="#" className="border border-white text-white hover:bg-red-700 px-8 py-3 rounded-lg font-semibold transition-colors inline-flex items-center justify-center">
+                Learn More
+                <ExternalLink size={18} className="ml-2" />
+              </a>
+            </div>
+          </div>
         </div>
       </div>
     </section>

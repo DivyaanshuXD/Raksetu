@@ -14,18 +14,11 @@ export default function CTASection({ setActiveSection, setShowAuthModal, setAuth
             <button
               className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2"
               onClick={() => {
-                setAuthMode('register');
+                setAuthMode('signup');
                 setShowAuthModal(true);
               }}
             >
-              <button
-              className="bg-red-600 hover:bg-red-700 text-white px-0 py-1 rounded-lg font-semibold transition-colors flex items-center justify-center gap-0"
-              onClick={() => {
-                setAuthMode('donate');
-                setShowAuthModal(false);
-              }}
-            ></button>
-              Donate Now
+              Register as Donor
             </button>
             <button
               className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-6 py-3 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2"

@@ -12,7 +12,7 @@ i18n
     fallbackLng: 'en', // Default language
     debug: true, // Enable debug logs to troubleshoot
     backend: {
-      loadPath: 'src/locales/en.json', // Path to translation files
+      loadPath: '/locales/en.json', // Path to translation files
     },
     detection: {
       order: ['navigator', 'htmlTag', 'path', 'subdomain'],

@@ -1,28 +1,25 @@
 import { useState, useEffect } from 'react';
-import { AlertTriangle, Calendar, Check, Phone, MapPin, Clock, Users } from 'lucide-react';
-import { 
-  collection, 
-  addDoc, 
-  serverTimestamp, 
-  doc, 
-  updateDoc, 
-  getDoc, 
-  query, 
-  where, 
-  orderBy, 
-  getDocs,
-  onSnapshot,
-  increment // Add increment import
-} from 'firebase/firestore';
-import { db, auth } from '../../firebase';
+import { AlertTriangle, Calendar, Check, Phone, MapPin, Clock, Users, X } from 'lucide-react';
+import { collection, addDoc, serverTimestamp, doc, updateDoc, increment, getDoc, arrayRemove } from 'firebase/firestore';
+import { db, auth } from '../utils/firebase';
 
-export default function DonateBloodSection({ setActiveSection, userProfile, setShowAuthModal, setAuthMode, bloodDrives }) {
+// Mock data for blood banks and blood drives (no need for API endpoints)
+const mockBloodBanks = [
+  { id: 1, name: "Raksetu Central Blood Bank", location: "Sector 12, Delhi", distance: "2.3 km", availability: { "A+": 10, "B+": 5, "O+": 8, "AB+": 3 } },
+  { id: 2, name: "Apollo Blood Center", location: "MG Road, Bangalore", distance: "4.1 km", availability: { "A-": 7, "B-": 2, "O-": 4, "AB-": 1 } },
+  { id: 3, name: "Fortis Blood Bank", location: "Andheri, Mumbai", distance: "5.6 km", availability: { "A+": 3, "B+": 6, "O+": 9, "AB+": 2 } },
+];
+
+const mockBloodDrives = [
+  { id: 1, name: "Raksetu Community Drive", organizer: "Red Cross", location: "MG Road, Bangalore", date: "2025-05-01", time: "10:00 AM", registered: 45 },
+  { id: 2, name: "Corporate Drive", organizer: "Tata Group", location: "Sector 12, Delhi", date: "2025-05-15", time: "09:00 AM", registered: 30 },
+  { id: 3, name: "School Drive", organizer: "DAV School", location: "Andheri, Mumbai", date: "2025-06-01", time: "11:00 AM", registered: 20 },
+];
+
+export default function DonateBloodSection({ setActiveSection, userProfile, setShowAuthModal, setAuthMode }) {
   const [bloodBanks, setBloodBanks] = useState([]);
-  const [localBloodDrives, setLocalBloodDrives] = useState([]);
-  const [loading, setLoading] = useState({
-    banks: true,
-    drives: true
-  });
+  const [bloodDrives, setBloodDrives] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [selectedBank, setSelectedBank] = useState(null);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [appointmentDate, setAppointmentDate] = useState('');
@@ -30,65 +27,16 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
   const [registeredDrives, setRegisteredDrives] = useState([]);
   const [successMessage, setSuccessMessage] = useState('');
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  // Fetch blood banks from Firestore
   useEffect(() => {
-    setLoading(prev => ({ ...prev, banks: true }));
-    
-    const bloodBanksQuery = query(
-      collection(db, 'bloodBanks'),
-      orderBy('name', 'asc')
-    );
-    
-    const unsubscribe = onSnapshot(bloodBanksQuery, (snapshot) => {
-      const banks = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      
-      setBloodBanks(banks);
-      setLoading(prev => ({ ...prev, banks: false }));
-    }, (error) => {
-      console.error("Error fetching blood banks:", error);
-      setLoading(prev => ({ ...prev, banks: false }));
-    });
-    
-    return () => unsubscribe();
-  }, []);
+    setLoading(true);
+    setTimeout(() => {
+      setBloodBanks(mockBloodBanks);
+      setBloodDrives(mockBloodDrives);
+      setLoading(false);
+    }, 800);
 
-  // Use blood drives from props if available, otherwise fetch from Firestore
-  useEffect(() => {
-    if (bloodDrives && bloodDrives.length > 0) {
-      setLocalBloodDrives(bloodDrives);
-      setLoading(prev => ({ ...prev, drives: false }));
-    } else {
-      setLoading(prev => ({ ...prev, drives: true }));
-      
-      const bloodDrivesQuery = query(
-        collection(db, 'bloodDrives'),
-        where('endDate', '>=', new Date()),
-        orderBy('endDate', 'asc')
-      );
-      
-      const unsubscribe = onSnapshot(bloodDrivesQuery, (snapshot) => {
-        const drives = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
-        
-        setLocalBloodDrives(drives);
-        setLoading(prev => ({ ...prev, drives: false }));
-      }, (error) => {
-        console.error("Error fetching blood drives:", error);
-        setLoading(prev => ({ ...prev, drives: false }));
-      });
-      
-      return () => unsubscribe();
-    }
-  }, [bloodDrives]);
-  
-  // Check user's registered drives from their profile
-  useEffect(() => {
     if (userProfile && userProfile.registeredDrives) {
       setRegisteredDrives(userProfile.registeredDrives.map(drive => drive.id));
     }
@@ -96,19 +44,17 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
 
   const handleScheduleVisit = (bank) => {
     if (!auth.currentUser) {
-      // Redirect to auth modal if not logged in
       setAuthMode('login');
       setShowAuthModal(true);
       return;
     }
-    
     setSelectedBank(bank);
     setShowScheduleModal(true);
   };
 
   const handleSubmitAppointment = async () => {
     if (!selectedBank || !appointmentDate || !appointmentTime) return;
-    
+
     try {
       const currentUser = auth.currentUser;
       if (!currentUser) {
@@ -116,12 +62,9 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
         setShowAuthModal(true);
         return;
       }
-      
-      // Add the appointment to Firestore
-      const appointmentRef = await addDoc(collection(db, 'appointments'), {
+
+      await addDoc(collection(db, 'appointments'), {
         userId: currentUser.uid,
-        userName: userProfile?.name || currentUser.displayName || 'Anonymous',
-        userEmail: currentUser.email,
         bankId: selectedBank.id,
         bankName: selectedBank.name,
         date: appointmentDate,
@@ -129,32 +72,23 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
         status: 'scheduled',
         createdAt: serverTimestamp()
       });
-      
-      // Update user profile with appointment
+
       const userRef = doc(db, 'users', currentUser.uid);
       const userSnap = await getDoc(userRef);
-      
+
       if (userSnap.exists()) {
         let appointments = userSnap.data().appointments || [];
         appointments.push({
-          id: appointmentRef.id,
           bankId: selectedBank.id,
           bankName: selectedBank.name,
           date: appointmentDate,
           time: appointmentTime,
           status: 'scheduled'
         });
-        
+
         await updateDoc(userRef, { appointments });
       }
-      
-      // Update bank's appointment count
-      const bankRef = doc(db, 'bloodBanks', selectedBank.id);
-      await updateDoc(bankRef, {
-        appointmentCount: increment(1)
-      });
-      
-      // Show success message
+
       setSuccessMessage(`Appointment scheduled at ${selectedBank.name} on ${appointmentDate} at ${appointmentTime}`);
       setShowSuccessModal(true);
       setShowScheduleModal(false);
@@ -167,88 +101,94 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
   };
 
   const handleRegisterForDrive = async (drive) => {
-    if (!auth.currentUser) {
-      // Redirect to auth modal if not logged in
-      setAuthMode('login');
-      setShowAuthModal(true);
+    if (!auth.currentUser || isUserRegistered(drive.id)) {
       return;
     }
-    
+
+    setIsProcessing(true);
     try {
       const currentUser = auth.currentUser;
-      
-      // Check if user is already registered
-      if (registeredDrives.includes(drive.id)) {
-        alert("You are already registered for this blood drive.");
-        return;
-      }
-      
-      // Add registration to userDrives collection
+
       await addDoc(collection(db, 'userDrives'), {
         userId: currentUser.uid,
-        userName: userProfile?.name || currentUser.displayName || 'Anonymous',
-        userEmail: currentUser.email,
         driveId: drive.id,
-        driveName: drive.name || drive.title,
-        organizer: drive.organizer || drive.organization,
-        date: drive.date || drive.startDate,
-        time: drive.time || '09:00 AM',
+        driveName: drive.name,
+        organizer: drive.organizer,
+        date: drive.date,
+        time: drive.time,
         location: drive.location,
         registeredAt: serverTimestamp()
       });
-      
-      // Update registered count on the drive
-      if (drive.source !== 'external') {
-        const driveRef = doc(db, 'bloodDrives', drive.id);
-        await updateDoc(driveRef, {
-          registered: increment(1)
-        });
-      }
-      
-      // Update user profile with this drive
+
+      setBloodDrives(prevDrives => prevDrives.map(d =>
+        d.id === drive.id ? { ...d, registered: d.registered + 1 } : d
+      ));
+
       const userRef = doc(db, 'users', currentUser.uid);
       const userSnap = await getDoc(userRef);
-      
+
       if (userSnap.exists()) {
         let drives = userSnap.data().registeredDrives || [];
         drives.push({
           id: drive.id,
-          name: drive.name || drive.title,
-          organizer: drive.organizer || drive.organization,
-          date: drive.date || drive.startDate,
-          time: drive.time || '09:00 AM',
+          name: drive.name,
+          organizer: drive.organizer,
+          date: drive.date,
+          time: drive.time,
           location: drive.location
         });
-        
+
         await updateDoc(userRef, { registeredDrives: drives });
       }
-      
-      // Update local state to show registration
+
       setRegisteredDrives(prev => [...prev, drive.id]);
-      
-      // Show success message
-      setSuccessMessage(`Successfully registered for ${drive.name || drive.title} on ${drive.date || new Date(drive.startDate).toLocaleDateString()}`);
+      setSuccessMessage(`Successfully registered for ${drive.name} on ${drive.date}`);
       setShowSuccessModal(true);
     } catch (error) {
       console.error("Error registering for drive:", error);
       alert("There was an error registering for this blood drive. Please try again.");
+    } finally {
+      setIsProcessing(false);
     }
-  };
-  
-  const isUserRegistered = (driveId) => {
-    return registeredDrives.includes(driveId);
   };
 
-  // Format date from ISO string to readable format
-  const formatDate = (dateString) => {
-    if (!dateString) return '';
-    
-    try {
-      const date = new Date(dateString);
-      return date.toISOString().split('T')[0]; // returns YYYY-MM-DD
-    } catch (e) {
-      return dateString;
+  const handleUnregisterForDrive = async (drive) => {
+    if (!auth.currentUser || !isUserRegistered(drive.id)) {
+      return;
     }
+
+    setIsProcessing(true);
+    try {
+      const currentUser = auth.currentUser;
+
+      await updateDoc(doc(db, 'users', currentUser.uid), {
+        registeredDrives: arrayRemove({
+          id: drive.id,
+          name: drive.name,
+          organizer: drive.organizer,
+          date: drive.date,
+          time: drive.time,
+          location: drive.location
+        })
+      });
+
+      setBloodDrives(prevDrives => prevDrives.map(d =>
+        d.id === drive.id ? { ...d, registered: d.registered - 1 } : d
+      ));
+
+      setRegisteredDrives(prev => prev.filter(id => id !== drive.id));
+      setSuccessMessage(`Successfully unregistered from ${drive.name} on ${drive.date}`);
+      setShowSuccessModal(true);
+    } catch (error) {
+      console.error("Error unregistering from drive:", error);
+      alert("There was an error unregistering from this blood drive. Please try again.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const isUserRegistered = (driveId) => {
+    return registeredDrives.includes(driveId);
   };
 
   return (
@@ -256,7 +196,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl md:text-3xl font-bold">Donate Blood</h2>
-          <div className="text-sm text-gray-500">raksetu.live</div>
+          
         </div>
 
         <div className="grid md:grid-cols-3 gap-6 mb-10">
@@ -305,20 +245,10 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
 
         <div className="mb-10" id="blood-banks">
           <h3 className="text-xl font-semibold mb-4">Nearby Blood Banks</h3>
-          {loading.banks ? (
+          {loading ? (
             <div className="text-center py-10">
               <div className="inline-block w-8 h-8 border-4 border-gray-200 border-t-red-600 rounded-full animate-spin mb-2"></div>
               <p>Loading blood banks...</p>
-            </div>
-          ) : bloodBanks.length === 0 ? (
-            <div className="text-center py-10 bg-white rounded-xl shadow-sm">
-              <p className="text-gray-600">No blood banks found in your area.</p>
-              <button 
-                className="mt-4 bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors"
-                onClick={() => window.location.reload()}
-              >
-                Refresh
-              </button>
             </div>
           ) : (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -326,13 +256,13 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
                 <div key={bank.id} className="bg-white p-4 rounded-xl shadow-sm">
                   <h4 className="font-medium mb-1">{bank.name}</h4>
                   <div className="flex items-center text-sm text-gray-500 mb-3">
-                    <MapPin size={14} className="mr-1" /> {bank.location} ({bank.distance || 'Unknown'})
+                    <MapPin size={14} className="mr-1" /> {bank.location} ({bank.distance})
                   </div>
 
                   <div className="mb-3">
                     <div className="text-sm font-medium mb-2">Blood Availability:</div>
                     <div className="grid grid-cols-4 gap-2">
-                      {bank.availability && Object.entries(bank.availability).map(([type, count]) => (
+                      {Object.entries(bank.availability).map(([type, count]) => (
                         <div key={type} className="text-center">
                           <div
                             className={`text-sm font-bold rounded-full w-8 h-8 mx-auto flex items-center justify-center ${
@@ -354,16 +284,10 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
                     >
                       Schedule Visit
                     </button>
-                    <button 
-                      className="bg-gray-100 hover:bg-gray-200 p-2 rounded-lg transition-colors"
-                      onClick={() => window.open(`tel:${bank.phone || '1234567890'}`)}
-                    >
+                    <button className="bg-gray-100 hover:bg-gray-200 p-2 rounded-lg transition-colors">
                       <Phone size={16} />
                     </button>
-                    <button 
-                      className="bg-gray-100 hover:bg-gray-200 p-2 rounded-lg transition-colors"
-                      onClick={() => window.open(`https://maps.google.com/?q=${bank.location}`)}
-                    >
+                    <button className="bg-gray-100 hover:bg-gray-200 p-2 rounded-lg transition-colors">
                       <MapPin size={16} />
                     </button>
                   </div>
@@ -375,77 +299,67 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
 
         <div className="mb-10" id="blood-drives">
           <h3 className="text-xl font-semibold mb-4">Upcoming Blood Drives</h3>
-          {loading.drives ? (
-            <div className="text-center py-10">
-              <div className="inline-block w-8 h-8 border-4 border-gray-200 border-t-red-600 rounded-full animate-spin mb-2"></div>
-              <p>Loading blood drives...</p>
-            </div>
-          ) : localBloodDrives.length === 0 ? (
-            <div className="text-center py-10 bg-white rounded-xl shadow-sm">
-              <p className="text-gray-600">No upcoming blood drives found.</p>
-              <button 
-                className="mt-4 bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors"
-                onClick={() => window.location.reload()}
-              >
-                Refresh
-              </button>
-            </div>
-          ) : (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {localBloodDrives.map((drive) => (
-                <div key={drive.id} className="bg-white p-4 rounded-xl shadow-sm">
-                  <div className="flex items-start gap-3">
-                    <div className="bg-red-50 text-red-600 p-2 rounded-lg">
-                      <Calendar size={24} />
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {bloodDrives.map((drive) => (
+              <div key={drive.id} className="bg-white p-4 rounded-xl shadow-sm">
+                <div className="flex items-start gap-3">
+                  <div className="bg-red-50 text-red-600 p-2 rounded-lg">
+                    <Calendar size={24} />
+                  </div>
+                  <div>
+                    <h4 className="font-medium">{drive.name}</h4>
+                    <div className="text-sm text-gray-500 mb-2">{drive.organizer}</div>
+
+                    <div className="text-sm mb-3">
+                      <div className="flex items-center mb-1">
+                        <MapPin size={14} className="mr-1 text-gray-500" />
+                        <span>{drive.location}</span>
+                      </div>
+                      <div className="flex items-center mb-1">
+                        <Calendar size={14} className="mr-1 text-gray-500" />
+                        <span>{drive.date}</span>
+                      </div>
+                      <div className="flex items-center">
+                        <Clock size={14} className="mr-1 text-gray-500" />
+                        <span>{drive.time}</span>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="font-medium">{drive.name || drive.title}</h4>
-                      <div className="text-sm text-gray-500 mb-2">{drive.organizer || drive.organization}</div>
 
-                      <div className="text-sm mb-3">
-                        <div className="flex items-center mb-1">
-                          <MapPin size={14} className="mr-1 text-gray-500" />
-                          <span>{drive.location}</span>
-                        </div>
-                        <div className="flex items-center mb-1">
-                          <Calendar size={14} className="mr-1 text-gray-500" />
-                          <span>{drive.date || formatDate(drive.startDate)}</span>
-                        </div>
-                        <div className="flex items-center">
-                          <Clock size={14} className="mr-1 text-gray-500" />
-                          <span>{drive.time || '09:00 AM'}</span>
-                        </div>
-                      </div>
+                    <div className="flex items-center text-sm mb-3">
+                      <Users size={14} className="mr-1 text-gray-500" />
+                      <span>{drive.registered} people registered</span>
+                    </div>
 
-                      <div className="flex items-center text-sm mb-3">
-                        <Users size={14} className="mr-1 text-gray-500" />
-                        <span>{drive.registered || 0} people registered</span>
-                      </div>
-
-                      <button 
-                        className={`${
-                          isUserRegistered(drive.id) 
-                            ? 'bg-green-600 hover:bg-green-700' 
-                            : 'bg-red-600 hover:bg-red-700'
-                        } text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors flex items-center gap-2`}
-                        onClick={() => !isUserRegistered(drive.id) && handleRegisterForDrive(drive)}
-                        disabled={isUserRegistered(drive.id)}
-                      >
-                        {isUserRegistered(drive.id) ? (
-                          <>
-                            <Check size={16} />
-                            Registered
-                          </>
-                        ) : (
-                          'Register'
-                        )}
-                      </button>
+                    <div className="flex items-center gap-2">
+                      {isUserRegistered(drive.id) ? (
+                        <>
+                          <span className="text-green-600 flex items-center">
+                            <Check size={16} className="mr-1" /> Registered
+                          </span>
+                          <button
+                            onClick={() => handleUnregisterForDrive(drive)}
+                            disabled={isProcessing}
+                            className="text-gray-500 hover:text-gray-700"
+                            aria-label={`Unregister from ${drive.name}`}
+                          >
+                            <X size={16} />
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          className="bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors"
+                          onClick={() => handleRegisterForDrive(drive)}
+                          disabled={isProcessing}
+                        >
+                          {isProcessing ? 'Processing...' : 'Register'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="bg-red-50 p-6 rounded-xl">
@@ -456,17 +370,13 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
                 We provide support for organizing blood donation drives at your workplace, community, or institution through Raksetu.
               </p>
             </div>
-            <button 
-              className="whitespace-nowrap bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
-              onClick={() => setActiveSection('about')}
-            >
+            <button className="whitespace-nowrap bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-medium transition-colors">
               Contact Us
             </button>
           </div>
         </div>
       </div>
 
-      {/* Schedule Visit Modal */}
       {showScheduleModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl p-6 max-w-md w-full">
@@ -522,7 +432,6 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
         </div>
       )}
 
-      {/* Success Modal */}
       {showSuccessModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl p-6 max-w-md w-full text-center">

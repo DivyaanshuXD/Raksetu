@@ -22,7 +22,7 @@ export default function Footer({ setActiveSection }) {
             </div>
             <div className="flex items-center space-x-2 text-gray-400">
               <Mail size={16} />
-              <a href="mailto:support@raksetu.com" className="hover:text-white transition-colors">support@raksetu.com</a>
+              <a href="mailto:support@raksetu.live" className="hover:text-white transition-colors">support@raksetu.live</a>
             </div>
           </div>
           
@@ -77,7 +77,7 @@ export default function Footer({ setActiveSection }) {
             <ul className="space-y-3 text-gray-400">
               <li>
                 <a 
-                  href="https://raksetu.com/faq" 
+                  href="https://raksetu.live/faq" 
                   target="_blank" 
                   rel="noopener noreferrer" 
                   className="hover:text-white transition-colors flex items-center"
@@ -87,7 +87,7 @@ export default function Footer({ setActiveSection }) {
               </li>
               <li>
                 <a 
-                  href="mailto:support@raksetu.com" 
+                  href="mailto:support@raksetu.live" 
                   className="hover:text-white transition-colors flex items-center"
                 >
                   <span className="hover:translate-x-1 transition-transform">Contact Us</span>
@@ -95,7 +95,7 @@ export default function Footer({ setActiveSection }) {
               </li>
               <li>
                 <a 
-                  href="https://raksetu.com/privacy" 
+                  href="https://raksetu.live/privacy" 
                   target="_blank" 
                   rel="noopener noreferrer" 
                   className="hover:text-white transition-colors flex items-center"
@@ -105,7 +105,7 @@ export default function Footer({ setActiveSection }) {
               </li>
               <li>
                 <a 
-                  href="https://raksetu.com/terms" 
+                  href="https://raksetu.live/terms" 
                   target="_blank" 
                   rel="noopener noreferrer" 
                   className="hover:text-white transition-colors flex items-center"
@@ -145,7 +145,7 @@ export default function Footer({ setActiveSection }) {
               </li>
               <li>
                 <a 
-                  href="https://raksetu.com/partnerships" 
+                  href="https://raksetu.live/partnerships" 
                   target="_blank" 
                   rel="noopener noreferrer" 
                   className="hover:text-white transition-colors flex items-center"

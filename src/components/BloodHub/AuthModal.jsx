@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { X } from 'lucide-react';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
-import { auth, db } from '../../firebase';
+import { auth, db } from '../utils/firebase';
 
 export default function AuthModal({ show, setShow, authMode, setAuthMode, setIsLoggedIn }) {
   const [formData, setFormData] = useState({

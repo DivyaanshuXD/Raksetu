@@ -1,20 +1,7 @@
-import { useState, useEffect } from 'react';
 import { Droplet, AlertTriangle, ChevronRight } from 'lucide-react';
 import EmergencyCard from './EmergencyCard';
-import { collection, onSnapshot } from 'firebase/firestore';
-import { db } from '../../firebase';
 
 export default function HeroSection({ setActiveSection, setShowEmergencyModal, emergencyRequests }) {
-  const [emergencies, setEmergencies] = useState([]);
-
-  useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, 'emergencies'), (snapshot) => {
-      const emergencyList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setEmergencies(emergencyList);
-    });
-    return () => unsubscribe();
-  }, []);
-
   return (
     <section className="relative py-16 overflow-hidden">
       <video
@@ -23,7 +10,7 @@ export default function HeroSection({ setActiveSection, setShowEmergencyModal, e
         loop
         className="absolute top-0 left-0 w-full h-full object-cover z-0 opacity-100"
       >
-        <source src="src/assets/login-background.mp4" type="video/mp4" />
+        <source src="/assets/login-background.mp4" type="video/mp4" />
         Your browser does not support the video tag.
       </video>
       <div className="container mx-auto px-4 relative z-10 grid md:grid-cols-2 gap-8 items-center">
@@ -68,14 +55,11 @@ export default function HeroSection({ setActiveSection, setShowEmergencyModal, e
                 <span className="bg-red-100 text-red-600 text-xs px-2 py-1 rounded-full">Live</span>
               </div>
               <div className="space-y-4">
-                {/* Use emergencyRequests from props instead of local emergencies state when possible */}
-                {(emergencyRequests && emergencyRequests.length > 0 ? emergencyRequests : emergencies).slice(0, 3).map((emergency) => (
+                {emergencyRequests.slice(0, 3).map((emergency) => (
                   <EmergencyCard
                     key={emergency.id}
                     emergency={emergency}
-                    onClick={() => {
-                      setActiveSection('emergency');
-                    }}
+                    onClick={() => setActiveSection('emergency')}
                   />
                 ))}
               </div>

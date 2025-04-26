@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, collection, onSnapshot, query, where, orderBy, getDocs } from 'firebase/firestore';
+import { getToken } from 'firebase/messaging'; // Import FCM
 import { MapPin, Droplet, Bell, Menu, X, LogIn, ArrowLeft } from 'lucide-react';
-import { auth, db } from '../../firebase';
+import { auth, db, messaging } from '../utils/firebase'; // Updated import
+import { calculateDistance } from '../utils/geolocation'; // Import geolocation
 import Header from './Header';
 import HeroSection from './HeroSection';
 import FeaturesSection from './FeaturesSection';
@@ -44,7 +46,7 @@ export default function BloodHub() {
     activeRequests: 0
   });
 
-  // Auth state listener
+  // Auth state listener with FCM subscription
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -52,7 +54,21 @@ export default function BloodHub() {
         // Fetch user profile from Firestore
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
-          setUserProfile(userDoc.data());
+          const profileData = userDoc.data();
+          setUserProfile(profileData);
+
+          // Subscribe to FCM topic based on blood type
+          if (profileData.bloodType) {
+            const token = await getToken(messaging, { vapidKey: import.meta.env.VITE_VAPID_KEY });
+            fetch('https://iid.googleapis.com/iid/v1:batchAdd', {
+              method: 'POST',
+              headers: { 'Authorization': `key=${import.meta.env.VITE_SERVER_KEY}` }, // Get from Firebase Console
+              body: JSON.stringify({
+                to: `/topics/bloodType_${profileData.bloodType}`,
+                registration_tokens: [token]
+              })
+            }).catch((error) => console.error('FCM subscription error:', error));
+          }
         }
         
         // Set up user donations listener
@@ -82,8 +98,8 @@ export default function BloodHub() {
     
     return () => unsubscribe();
   }, []);
-  
-  // Emergency requests listener
+
+  // Emergency requests listener with geocoding
   useEffect(() => {
     const emergencyQuery = query(
       collection(db, 'emergencyRequests'),
@@ -92,12 +108,15 @@ export default function BloodHub() {
       orderBy('timestamp', 'desc')
     );
     
-    const unsubscribe = onSnapshot(emergencyQuery, (snapshot) => {
-      const requestsList = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        // Ensure coordinates are properly formatted for map
-        coordinates: doc.data().coordinates || null
+    const unsubscribe = onSnapshot(emergencyQuery, async (snapshot) => {
+      const requestsList = await Promise.all(snapshot.docs.map(async (doc) => {
+        const data = doc.data();
+        if (!data.coordinates || !data.coordinates.latitude || !data.coordinates.longitude) {
+          const coords = await geocodeLocation(data.location); // Geocode if missing
+          await db.collection('emergencyRequests').doc(doc.id).update({ coordinates: coords });
+          return { id: doc.id, ...data, coordinates: coords };
+        }
+        return { id: doc.id, ...data };
       }));
       setEmergencyRequests(requestsList);
       
@@ -110,12 +129,12 @@ export default function BloodHub() {
     
     return () => unsubscribe();
   }, []);
-  
-  // Fetch blood drives from external APIs and combine with Firebase data
+
+  // Fetch blood drives from backend API
   useEffect(() => {
     const fetchBloodDrives = async () => {
       try {
-        // First get blood drives from our own Firestore database
+        // Fetch from Firestore
         const localDrivesQuery = query(
           collection(db, 'bloodDrives'),
           where('endDate', '>=', new Date()),
@@ -129,9 +148,13 @@ export default function BloodHub() {
           ...doc.data()
         }));
         
-        // Fetch from external API (mock implementation for now)
-        // In production, use a proxy server to avoid CORS issues
-        const externalDrives = await fetchExternalBloodDrives();
+        // Fetch from backend API (replace mock with real endpoint)
+        const externalDrives = await fetch('http://your-backend-api.com/blood-drives')
+          .then(response => response.json())
+          .catch(error => {
+            console.error('Error fetching external blood drives:', error);
+            return [];
+          });
         
         // Combine and update state
         setBloodDrives([...localDrives, ...externalDrives]);
@@ -141,43 +164,28 @@ export default function BloodHub() {
     };
     
     fetchBloodDrives();
-    // Set up interval to refresh every 15 minutes
-    const interval = setInterval(fetchBloodDrives, 900000);
-    
+    const interval = setInterval(fetchBloodDrives, 900000); // Refresh every 15 minutes
     return () => clearInterval(interval);
   }, []);
-  
-  // Mock function to fetch external blood drives
-  // This would be replaced with actual API calls in production
-  const fetchExternalBloodDrives = async () => {
-    // In production, this would call your backend API that aggregates from multiple sources
-    // For now, return mock data
-    return [
-      {
-        id: 'ext1',
-        title: 'Red Cross Blood Drive',
-        organization: 'Red Cross India',
-        location: 'Community Center, Delhi',
-        coordinates: { latitude: 28.6280, longitude: 77.2090 },
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
-        source: 'redcross',
-        contactPhone: '+91 98765-43210'
-      },
-      {
-        id: 'ext2',
-        title: 'Lions Club Blood Donation Camp',
-        organization: 'Lions Club',
-        location: 'Lions Club Hall, Mumbai',
-        coordinates: { latitude: 19.0760, longitude: 72.8777 },
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 172800000).toISOString(), // Day after tomorrow
-        source: 'lionsclub',
-        contactPhone: '+91 87654-32109'
+
+  // Geocode location using OpenStreetMap Nominatim
+  const geocodeLocation = async (location) => {
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`);
+      const data = await response.json();
+      if (data.length > 0) {
+        return {
+          latitude: parseFloat(data[0].lat),
+          longitude: parseFloat(data[0].lon)
+        };
       }
-    ];
+      return { latitude: 28.6139, longitude: 77.2090 }; // Default to Delhi
+    } catch (error) {
+      console.error('Geocoding failed:', error);
+      return { latitude: 28.6139, longitude: 77.2090 };
+    }
   };
-  
+
   // Global stats listener
   useEffect(() => {
     const statsDoc = doc(db, 'stats', 'global');
@@ -205,12 +213,10 @@ export default function BloodHub() {
           });
         },
         () => {
-          // Fallback to Delhi coordinates if geolocation is denied
           setUserLocation({ lat: 28.6139, lng: 77.2090 });
         }
       );
     } else {
-      // Fallback for browsers that don't support geolocation
       setUserLocation({ lat: 28.6139, lng: 77.2090 });
     }
   }, []);
@@ -268,6 +274,7 @@ export default function BloodHub() {
             getUrgencyColor={getUrgencyColor}
             emergencyRequests={emergencyRequests}
             userLocation={userLocation}
+            userProfile={userProfile} // Pass userProfile for blood type matching
           />
         )}
         {activeSection === 'donate' && (
