@@ -44,7 +44,15 @@ const userLocationIcon = new L.Icon({
   popupAnchor: [0, -41],
 });
 
-export default function EmergencyMapSection({ userLocation, emergencyRequests = [], bloodDrives = [], setActiveSection }) {
+const bloodBankIcon = new L.Icon({
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [0, -41],
+  className: 'hue-rotate-45' // Different color for blood banks
+});
+
+export default function EmergencyMapSection({ userLocation, emergencyRequests = [], bloodDrives = [], bloodBanks = [], setActiveSection }) {
   const [bloodTypeFilter, setBloodTypeFilter] = useState('All');
   const [filteredEmergencies, setFilteredEmergencies] = useState([]);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -101,7 +109,7 @@ export default function EmergencyMapSection({ userLocation, emergencyRequests = 
         <div className="text-center mb-10">
           <h2 className="text-3xl font-bold mb-3">Live Emergency Map</h2>
           <p className="text-gray-600 max-w-3xl mx-auto">
-            Real-time visualization of blood emergencies across India. Find donation opportunities near you.
+            Real-time visualization of blood emergencies and blood banks across India. Find donation opportunities near you.
           </p>
         </div>
 
@@ -151,6 +159,46 @@ export default function EmergencyMapSection({ userLocation, emergencyRequests = 
                     </Marker>
                   );
                 })}
+                {bloodBanks.map((bank) => {
+                  if (!bank.coordinates) return null;
+                  const coords = {
+                    lat: bank.coordinates.latitude,
+                    lng: bank.coordinates.longitude
+                  };
+                  return (
+                    <Marker
+                      key={bank.id}
+                      position={[coords.lat, coords.lng]}
+                      icon={bloodBankIcon}
+                    >
+                      <Popup>
+                        <div>
+                          <h4 className="font-semibold">{bank.name}</h4>
+                          <p><strong>Location:</strong> {bank.location}</p>
+                          <p><strong>Distance:</strong> {bank.distance} km</p>
+                          {bank.availability && (
+                            <div>
+                              <strong>Blood Availability:</strong>
+                              <ul>
+                                {Object.entries(bank.availability).map(([type, count]) => (
+                                  <li key={type}>{type}: {count} units</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          <a
+                            href={`https://www.google.com/maps/dir/?api=1&destination=${coords.lat},${coords.lng}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:underline"
+                          >
+                            Navigate
+                          </a>
+                        </div>
+                      </Popup>
+                    </Marker>
+                  );
+                })}
                 <Marker position={[userLocation.lat, userLocation.lng]} icon={userLocationIcon}>
                   <Popup>Your current location</Popup>
                 </Marker>
@@ -182,7 +230,7 @@ export default function EmergencyMapSection({ userLocation, emergencyRequests = 
 
           <div className="flex justify-between items-center">
             <div className="text-sm text-gray-500">
-              Showing {filteredEmergencies.length} {filteredEmergencies.length === 1 ? 'emergency' : 'emergencies'}
+              Showing {filteredEmergencies.length} {filteredEmergencies.length === 1 ? 'emergency' : 'emergencies'} and {bloodBanks.length} blood banks
             </div>
             <button
               className="text-red-600 font-medium flex items-center hover:text-red-800 transition-colors"

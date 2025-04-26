@@ -58,8 +58,8 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
 
   const totalDonations = donations.length;
   const totalImpactPoints = donations.reduce((sum, d) => sum + (d.impactPoints || 0), 0);
-  const bloodType = userProfile?.bloodType || 'Unknown';
-  const username = userProfile?.name || 'Anonymous';
+  const bloodType = userProfile?.bloodType || '';
+  const username = userProfile?.name || 'Human';
 
   const handleScheduleVisit = (bank) => {
     if (!auth.currentUser) {

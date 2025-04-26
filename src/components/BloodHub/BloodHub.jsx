@@ -20,7 +20,7 @@ import AuthModal from './AuthModal';
 import EmergencyRequestModal from './EmergencyRequestModal';
 import RequestSuccessModal from './RequestSuccessModal';
 import CTASection from './CTASection';
-import ErrorBoundary from './ErrorBoundary'; // Adjust the path
+import ErrorBoundary from './ErrorBoundary';
 import ProfileSection from './ProfileSection';
 
 const bloodTypes = ['All', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
@@ -35,9 +35,9 @@ export default function BloodHub() {
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
   const [showRequestSuccessModal, setShowRequestSuccessModal] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
-  
   const [emergencyRequests, setEmergencyRequests] = useState([]);
   const [bloodDrives, setBloodDrives] = useState([]);
+  const [bloodBanks, setBloodBanks] = useState([]);
   const [donations, setDonations] = useState([]);
   const [stats, setStats] = useState({
     totalDonors: 0,
@@ -54,7 +54,12 @@ export default function BloodHub() {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
           const profileData = userDoc.data();
-          setUserProfile(profileData);
+          setUserProfile({
+            ...profileData,
+            name: profileData.name || user.displayName || 'User',
+            email: profileData.email || user.email || 'user@example.com',
+            id: user.uid
+          });
 
           if (profileData.bloodType) {
             const token = await getToken(messaging, { vapidKey: import.meta.env.VITE_VAPID_KEY });
@@ -67,14 +72,26 @@ export default function BloodHub() {
               })
             }).catch((error) => console.error('FCM subscription error:', error));
           }
+        } else {
+          await setDoc(doc(db, 'users', user.uid), {
+            name: user.displayName || 'User',
+            email: user.email,
+            bloodType: '',
+            phone: ''
+          });
+          setUserProfile({
+            name: user.displayName || 'User',
+            email: user.email,
+            id: user.uid
+          });
         }
-        
+
         const userDonationsQuery = query(
           collection(db, 'donations'),
           where('donorId', '==', user.uid),
           orderBy('timestamp', 'desc')
         );
-        
+
         const donationsUnsubscribe = onSnapshot(userDonationsQuery, (snapshot) => {
           const donationsList = snapshot.docs.map(doc => ({
             id: doc.id,
@@ -82,7 +99,7 @@ export default function BloodHub() {
           }));
           setDonations(donationsList);
         });
-        
+
         return () => {
           donationsUnsubscribe();
         };
@@ -92,9 +109,53 @@ export default function BloodHub() {
         setDonations([]);
       }
     });
-    
+
     return () => unsubscribe();
   }, []);
+
+  // Get user location and fetch nearby blood banks
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          setUserLocation({ lat: latitude, lng: longitude });
+          fetchNearbyBloodBanks(latitude, longitude);
+        },
+        () => {
+          setUserLocation({ lat: 28.6139, lng: 77.2090 });
+          fetchNearbyBloodBanks(28.6139, 77.2090);
+        }
+      );
+    } else {
+      setUserLocation({ lat: 28.6139, lng: 77.2090 });
+      fetchNearbyBloodBanks(28.6139, 77.2090);
+    }
+  }, []);
+
+  // Fetch nearby blood banks with real-time updates
+  const fetchNearbyBloodBanks = (lat, lng) => {
+    const unsubscribe = onSnapshot(collection(db, 'bloodBanks'), (snapshot) => {
+      const bloodBanksList = snapshot.docs.map(doc => {
+        const data = doc.data();
+        let coordinates = { latitude: data.coordinates?.latitude || data.coordinates?.lat || 28.6139, longitude: data.coordinates?.longitude || data.coordinates?.lng || 77.2090 };
+        const distance = calculateDistance(lat, lng, coordinates.latitude, coordinates.longitude);
+        return { id: doc.id, ...data, coordinates, distance };
+      });
+
+      const nearby = bloodBanksList
+        .filter(bank => bank.distance <= 100)
+        .sort((a, b) => a.distance - b.distance);
+
+      setBloodBanks(nearby);
+      console.log('Fetched Blood Banks:', nearby);
+    }, (error) => {
+      console.error('Error fetching blood banks:', error);
+      setBloodBanks([]);
+    });
+
+    return unsubscribe;
+  };
 
   // Emergency requests listener
   useEffect(() => {
@@ -102,12 +163,11 @@ export default function BloodHub() {
       collection(db, 'emergencyRequests'),
       orderBy('timestamp', 'desc')
     );
-    
+
     const unsubscribe = onSnapshot(emergencyQuery, (snapshot) => {
       const requestsList = snapshot.docs.map(doc => {
         const data = doc.data();
-        // Normalize coordinates format
-        let normalizedCoordinates = { latitude: 28.6139, longitude: 77.2090 }; // Default to Delhi
+        let normalizedCoordinates = { latitude: 28.6139, longitude: 77.2090 };
         if (data.coordinates) {
           normalizedCoordinates = {
             latitude: data.coordinates.latitude || data.coordinates.lat || 28.6139,
@@ -125,7 +185,7 @@ export default function BloodHub() {
         console.log(`Request ${index} Coordinates:`, req.coordinates);
       });
       setEmergencyRequests(requestsList);
-      
+
       setStats(prev => ({
         ...prev,
         activeRequests: requestsList.length
@@ -133,7 +193,7 @@ export default function BloodHub() {
     }, (error) => {
       console.error('Error fetching emergency requests:', error);
     });
-    
+
     return () => unsubscribe();
   }, []);
 
@@ -146,12 +206,11 @@ export default function BloodHub() {
           where('endDate', '>=', new Date()),
           orderBy('endDate', 'asc')
         );
-        
+
         const localDrivesSnapshot = await getDocs(localDrivesQuery);
         const localDrives = localDrivesSnapshot.docs.map(doc => {
           const data = doc.data();
-          // Normalize coordinates format for blood drives
-          let normalizedCoordinates = { latitude: 28.6139, longitude: 77.2090 }; // Default to Delhi
+          let normalizedCoordinates = { latitude: 28.6139, longitude: 77.2090 };
           if (data.coordinates) {
             normalizedCoordinates = {
               latitude: data.coordinates.latitude || data.coordinates.lat || 28.6139,
@@ -165,11 +224,10 @@ export default function BloodHub() {
             coordinates: normalizedCoordinates
           };
         });
-        
+
         const externalDrives = await fetch('https://raksetu-backend.vercel.app/blood-drives')
           .then(response => response.json())
           .then(drives => drives.map(drive => {
-            // Normalize coordinates for external drives
             let normalizedCoordinates = { latitude: 28.6139, longitude: 77.2090 };
             if (drive.coordinates) {
               normalizedCoordinates = {
@@ -186,7 +244,7 @@ export default function BloodHub() {
             console.error('Error fetching external blood drives:', error);
             return [];
           });
-        
+
         const allDrives = [...localDrives, ...externalDrives];
         console.log('Fetched Blood Drives:', allDrives);
         allDrives.forEach((drive, index) => {
@@ -197,29 +255,10 @@ export default function BloodHub() {
         console.error('Error fetching blood drives:', error);
       }
     };
-    
+
     fetchBloodDrives();
     const interval = setInterval(fetchBloodDrives, 900000);
     return () => clearInterval(interval);
-  }, []);
-
-  // Get user location
-  useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setUserLocation({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude
-          });
-        },
-        () => {
-          setUserLocation({ lat: 28.6139, lng: 77.2090 });
-        }
-      );
-    } else {
-      setUserLocation({ lat: 28.6139, lng: 77.2090 });
-    }
   }, []);
 
   const getUrgencyColor = (urgency) => {
@@ -245,31 +284,32 @@ export default function BloodHub() {
         userProfile={userProfile}
       />
       <main>
-      {activeSection === 'home' && (
-  <>
-    <HeroSection
-      setActiveSection={setActiveSection}
-      setShowEmergencyModal={setShowEmergencyModal}
-      emergencyRequests={emergencyRequests}
-    />
-    <FeaturesSection />
-    <ErrorBoundary>
-      <EmergencyMapSection 
-        userLocation={userLocation}
-        emergencyRequests={emergencyRequests}
-        bloodDrives={bloodDrives}
-        setActiveSection={setActiveSection}
-      />
-    </ErrorBoundary>
-    <StatsSection stats={stats} />
-    <TestimonialsSection />
-    <CTASection
-      setActiveSection={setActiveSection}
-      setShowAuthModal={setShowAuthModal}
-      setAuthMode={setAuthMode}
-    />
-  </>
-)}
+        {activeSection === 'home' && (
+          <>
+            <HeroSection
+              setActiveSection={setActiveSection}
+              setShowEmergencyModal={setShowEmergencyModal}
+              emergencyRequests={emergencyRequests}
+            />
+            <FeaturesSection />
+            <ErrorBoundary>
+              <EmergencyMapSection
+                userLocation={userLocation}
+                emergencyRequests={emergencyRequests}
+                bloodDrives={bloodDrives}
+                bloodBanks={bloodBanks}
+                setActiveSection={setActiveSection}
+              />
+            </ErrorBoundary>
+            <StatsSection stats={stats} />
+            <TestimonialsSection />
+            <CTASection
+              setActiveSection={setActiveSection}
+              setShowAuthModal={setShowAuthModal}
+              setAuthMode={setAuthMode}
+            />
+          </>
+        )}
         {activeSection === 'profile' && <ProfileSection userProfile={userProfile} />}
         {activeSection === 'emergency' && (
           <EmergencySection
@@ -287,6 +327,7 @@ export default function BloodHub() {
             setShowAuthModal={setShowAuthModal}
             setAuthMode={setAuthMode}
             bloodDrives={bloodDrives}
+            bloodBanks={bloodBanks}
           />
         )}
         {activeSection === 'track' && (
@@ -295,6 +336,7 @@ export default function BloodHub() {
             setShowAuthModal={setShowAuthModal}
             setAuthMode={setAuthMode}
             donations={donations}
+            userProfile={userProfile}
           />
         )}
         {activeSection === 'about' && <AboutSection />}
