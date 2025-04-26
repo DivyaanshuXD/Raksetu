@@ -1,9 +1,24 @@
 import { useState, useEffect } from 'react';
 import { AlertTriangle, Calendar, Check, Phone, MapPin, Clock, Users, X } from 'lucide-react';
-import { collection, addDoc, serverTimestamp, doc, updateDoc, getDoc, arrayRemove } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, doc, updateDoc, increment, getDoc, arrayRemove } from 'firebase/firestore';
 import { db, auth } from '../utils/firebase';
 
-export default function DonateBloodSection({ setActiveSection, userProfile, setShowAuthModal, setAuthMode, bloodDrives, bloodBanks }) {
+// Mock data for blood banks and blood drives (no need for API endpoints)
+const mockBloodBanks = [
+  { id: 1, name: "Raksetu Central Blood Bank", location: "Sector 12, Delhi", distance: "2.3 km", availability: { "A+": 10, "B+": 5, "O+": 8, "AB+": 3 } },
+  { id: 2, name: "Apollo Blood Center", location: "MG Road, Bangalore", distance: "4.1 km", availability: { "A-": 7, "B-": 2, "O-": 4, "AB-": 1 } },
+  { id: 3, name: "Fortis Blood Bank", location: "Andheri, Mumbai", distance: "5.6 km", availability: { "A+": 3, "B+": 6, "O+": 9, "AB+": 2 } },
+];
+
+const mockBloodDrives = [
+  { id: 1, name: "Raksetu Community Drive", organizer: "Red Cross", location: "MG Road, Bangalore", date: "2025-05-01", time: "10:00 AM", registered: 45 },
+  { id: 2, name: "Corporate Drive", organizer: "Tata Group", location: "Sector 12, Delhi", date: "2025-05-15", time: "09:00 AM", registered: 30 },
+  { id: 3, name: "School Drive", organizer: "DAV School", location: "Andheri, Mumbai", date: "2025-06-01", time: "11:00 AM", registered: 20 },
+];
+
+export default function DonateBloodSection({ setActiveSection, userProfile, setShowAuthModal, setAuthMode }) {
+  const [bloodBanks, setBloodBanks] = useState([]);
+  const [bloodDrives, setBloodDrives] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedBank, setSelectedBank] = useState(null);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -17,6 +32,8 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
   useEffect(() => {
     setLoading(true);
     setTimeout(() => {
+      setBloodBanks(mockBloodBanks);
+      setBloodDrives(mockBloodDrives);
       setLoading(false);
     }, 800);
 
@@ -78,8 +95,8 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
       setAppointmentDate('');
       setAppointmentTime('');
     } catch (error) {
-      console.error("Detailed error scheduling appointment:", error);
-      alert(`Failed to schedule appointment: ${error.message}`);
+      console.error("Error scheduling appointment:", error);
+      alert("There was an error scheduling your appointment. Please try again.");
     }
   };
 
@@ -97,11 +114,15 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
         driveId: drive.id,
         driveName: drive.name,
         organizer: drive.organizer,
-        date: drive.endDate ? new Date(drive.endDate).toISOString().split('T')[0] : 'Unknown Date',
-        time: drive.time || 'Not specified',
+        date: drive.date,
+        time: drive.time,
         location: drive.location,
         registeredAt: serverTimestamp()
       });
+
+      setBloodDrives(prevDrives => prevDrives.map(d =>
+        d.id === drive.id ? { ...d, registered: d.registered + 1 } : d
+      ));
 
       const userRef = doc(db, 'users', currentUser.uid);
       const userSnap = await getDoc(userRef);
@@ -112,8 +133,8 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
           id: drive.id,
           name: drive.name,
           organizer: drive.organizer,
-          date: drive.endDate ? new Date(drive.endDate).toISOString().split('T')[0] : 'Unknown Date',
-          time: drive.time || 'Not specified',
+          date: drive.date,
+          time: drive.time,
           location: drive.location
         });
 
@@ -121,11 +142,11 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
       }
 
       setRegisteredDrives(prev => [...prev, drive.id]);
-      setSuccessMessage(`Successfully registered for ${drive.name} on ${drive.endDate ? new Date(drive.endDate).toISOString().split('T')[0] : 'Unknown Date'}`);
+      setSuccessMessage(`Successfully registered for ${drive.name} on ${drive.date}`);
       setShowSuccessModal(true);
     } catch (error) {
-      console.error("Detailed error registering for drive:", error);
-      alert(`Failed to register for blood drive: ${error.message}`);
+      console.error("Error registering for drive:", error);
+      alert("There was an error registering for this blood drive. Please try again.");
     } finally {
       setIsProcessing(false);
     }
@@ -145,18 +166,22 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
           id: drive.id,
           name: drive.name,
           organizer: drive.organizer,
-          date: drive.endDate ? new Date(drive.endDate).toISOString().split('T')[0] : 'Unknown Date',
-          time: drive.time || 'Not specified',
+          date: drive.date,
+          time: drive.time,
           location: drive.location
         })
       });
 
+      setBloodDrives(prevDrives => prevDrives.map(d =>
+        d.id === drive.id ? { ...d, registered: d.registered - 1 } : d
+      ));
+
       setRegisteredDrives(prev => prev.filter(id => id !== drive.id));
-      setSuccessMessage(`Successfully unregistered from ${drive.name} on ${drive.endDate ? new Date(drive.endDate).toISOString().split('T')[0] : 'Unknown Date'}`);
+      setSuccessMessage(`Successfully unregistered from ${drive.name} on ${drive.date}`);
       setShowSuccessModal(true);
     } catch (error) {
-      console.error("Detailed error unregistering from drive:", error);
-      alert(`Failed to unregister from blood drive: ${error.message}`);
+      console.error("Error unregistering from drive:", error);
+      alert("There was an error unregistering from this blood drive. Please try again.");
     } finally {
       setIsProcessing(false);
     }
@@ -171,6 +196,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl md:text-3xl font-bold">Donate Blood</h2>
+          
         </div>
 
         <div className="grid md:grid-cols-3 gap-6 mb-10">
@@ -193,7 +219,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
             <p className="text-gray-600 text-sm mb-4">
               Join organized blood donation camps in your community. Help build blood reserves for future needs.
             </p>
-            <button
+            <button 
               className="w-full bg-orange-500 hover:bg-orange-600 text-white py-2 rounded-lg transition-colors text-sm font-medium flex items-center justify-center gap-2"
               onClick={() => document.getElementById('blood-drives').scrollIntoView({ behavior: 'smooth' })}
             >
@@ -207,7 +233,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
             <p className="text-gray-600 text-sm mb-4">
               Schedule recurring donations at your preferred blood bank or hospital. Become a reliable donor.
             </p>
-            <button
+            <button 
               className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-lg transition-colors text-sm font-medium flex items-center justify-center gap-2"
               onClick={() => document.getElementById('blood-banks').scrollIntoView({ behavior: 'smooth' })}
             >
@@ -224,41 +250,35 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
               <div className="inline-block w-8 h-8 border-4 border-gray-200 border-t-red-600 rounded-full animate-spin mb-2"></div>
               <p>Loading blood banks...</p>
             </div>
-          ) : bloodBanks.length === 0 ? (
-            <div className="text-center py-10">
-              <p className="text-gray-600">No blood banks found nearby.</p>
-            </div>
           ) : (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
               {bloodBanks.map((bank) => (
                 <div key={bank.id} className="bg-white p-4 rounded-xl shadow-sm">
                   <h4 className="font-medium mb-1">{bank.name}</h4>
                   <div className="flex items-center text-sm text-gray-500 mb-3">
-                    <MapPin size={14} className="mr-1" /> {bank.location} ({bank.distance} km)
+                    <MapPin size={14} className="mr-1" /> {bank.location} ({bank.distance})
                   </div>
 
-                  {bank.availability && (
-                    <div className="mb-3">
-                      <div className="text-sm font-medium mb-2">Blood Availability:</div>
-                      <div className="grid grid-cols-4 gap-2">
-                        {Object.entries(bank.availability).map(([type, count]) => (
-                          <div key={type} className="text-center">
-                            <div
-                              className={`text-sm font-bold rounded-full w-8 h-8 mx-auto flex items-center justify-center ${
-                                count < 5 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
-                              }`}
-                            >
-                              {type}
-                            </div>
-                            <div className="text-xs mt-1">{count} units</div>
+                  <div className="mb-3">
+                    <div className="text-sm font-medium mb-2">Blood Availability:</div>
+                    <div className="grid grid-cols-4 gap-2">
+                      {Object.entries(bank.availability).map(([type, count]) => (
+                        <div key={type} className="text-center">
+                          <div
+                            className={`text-sm font-bold rounded-full w-8 h-8 mx-auto flex items-center justify-center ${
+                              count < 5 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
+                            }`}
+                          >
+                            {type}
                           </div>
-                        ))}
-                      </div>
+                          <div className="text-xs mt-1">{count} units</div>
+                        </div>
+                      ))}
                     </div>
-                  )}
+                  </div>
 
                   <div className="flex gap-2">
-                    <button
+                    <button 
                       className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg text-sm font-medium transition-colors"
                       onClick={() => handleScheduleVisit(bank)}
                     >
@@ -279,73 +299,67 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
 
         <div className="mb-10" id="blood-drives">
           <h3 className="text-xl font-semibold mb-4">Upcoming Blood Drives</h3>
-          {bloodDrives.length === 0 ? (
-            <div className="text-center py-10">
-              <p className="text-gray-600">No upcoming blood drives found.</p>
-            </div>
-          ) : (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {bloodDrives.map((drive) => (
-                <div key={drive.id} className="bg-white p-4 rounded-xl shadow-sm">
-                  <div className="flex items-start gap-3">
-                    <div className="bg-red-50 text-red-600 p-2 rounded-lg">
-                      <Calendar size={24} />
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {bloodDrives.map((drive) => (
+              <div key={drive.id} className="bg-white p-4 rounded-xl shadow-sm">
+                <div className="flex items-start gap-3">
+                  <div className="bg-red-50 text-red-600 p-2 rounded-lg">
+                    <Calendar size={24} />
+                  </div>
+                  <div>
+                    <h4 className="font-medium">{drive.name}</h4>
+                    <div className="text-sm text-gray-500 mb-2">{drive.organizer}</div>
+
+                    <div className="text-sm mb-3">
+                      <div className="flex items-center mb-1">
+                        <MapPin size={14} className="mr-1 text-gray-500" />
+                        <span>{drive.location}</span>
+                      </div>
+                      <div className="flex items-center mb-1">
+                        <Calendar size={14} className="mr-1 text-gray-500" />
+                        <span>{drive.date}</span>
+                      </div>
+                      <div className="flex items-center">
+                        <Clock size={14} className="mr-1 text-gray-500" />
+                        <span>{drive.time}</span>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="font-medium">{drive.name}</h4>
-                      <div className="text-sm text-gray-500 mb-2">{drive.organizer}</div>
 
-                      <div className="text-sm mb-3">
-                        <div className="flex items-center mb-1">
-                          <MapPin size={14} className="mr-1 text-gray-500" />
-                          <span>{drive.location}</span>
-                        </div>
-                        <div className="flex items-center mb-1">
-                          <Calendar size={14} className="mr-1 text-gray-500" />
-                          <span>{drive.endDate ? new Date(drive.endDate).toISOString().split('T')[0] : 'Unknown Date'}</span>
-                        </div>
-                        <div className="flex items-center">
-                          <Clock size={14} className="mr-1 text-gray-500" />
-                          <span>{drive.time || 'Not specified'}</span>
-                        </div>
-                      </div>
+                    <div className="flex items-center text-sm mb-3">
+                      <Users size={14} className="mr-1 text-gray-500" />
+                      <span>{drive.registered} people registered</span>
+                    </div>
 
-                      <div className="flex items-center text-sm mb-3">
-                        <Users size={14} className="mr-1 text-gray-500" />
-                        <span>{drive.registered || 0} people registered</span>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        {isUserRegistered(drive.id) ? (
-                          <>
-                            <span className="text-green-600 flex items-center">
-                              <Check size={16} className="mr-1" /> Registered
-                            </span>
-                            <button
-                              onClick={() => handleUnregisterForDrive(drive)}
-                              disabled={isProcessing}
-                              className="text-gray-500 hover:text-gray-700"
-                              aria-label={`Unregister from ${drive.name}`}
-                            >
-                              <X size={16} />
-                            </button>
-                          </>
-                        ) : (
+                    <div className="flex items-center gap-2">
+                      {isUserRegistered(drive.id) ? (
+                        <>
+                          <span className="text-green-600 flex items-center">
+                            <Check size={16} className="mr-1" /> Registered
+                          </span>
                           <button
-                            className="bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors"
-                            onClick={() => handleRegisterForDrive(drive)}
+                            onClick={() => handleUnregisterForDrive(drive)}
                             disabled={isProcessing}
+                            className="text-gray-500 hover:text-gray-700"
+                            aria-label={`Unregister from ${drive.name}`}
                           >
-                            {isProcessing ? 'Processing...' : 'Register'}
+                            <X size={16} />
                           </button>
-                        )}
-                      </div>
+                        </>
+                      ) : (
+                        <button
+                          className="bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors"
+                          onClick={() => handleRegisterForDrive(drive)}
+                          disabled={isProcessing}
+                        >
+                          {isProcessing ? 'Processing...' : 'Register'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="bg-red-50 p-6 rounded-xl">
@@ -367,21 +381,21 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl p-6 max-w-md w-full">
             <h3 className="text-xl font-bold mb-4">Schedule Donation at {selectedBank?.name}</h3>
-
+            
             <div className="mb-4">
               <label className="block text-sm font-medium mb-1">Date</label>
-              <input
-                type="date"
+              <input 
+                type="date" 
                 className="w-full border border-gray-300 rounded-lg p-2"
                 min={new Date().toISOString().split('T')[0]}
                 value={appointmentDate}
                 onChange={(e) => setAppointmentDate(e.target.value)}
               />
             </div>
-
+            
             <div className="mb-6">
               <label className="block text-sm font-medium mb-1">Time</label>
-              <select
+              <select 
                 className="w-full border border-gray-300 rounded-lg p-2"
                 value={appointmentTime}
                 onChange={(e) => setAppointmentTime(e.target.value)}
@@ -398,15 +412,15 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
                 <option value="05:00 PM">05:00 PM</option>
               </select>
             </div>
-
+            
             <div className="flex gap-3">
-              <button
+              <button 
                 className="flex-1 bg-gray-200 hover:bg-gray-300 py-2 rounded-lg transition-colors font-medium"
                 onClick={() => setShowScheduleModal(false)}
               >
                 Cancel
               </button>
-              <button
+              <button 
                 className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg transition-colors font-medium"
                 onClick={handleSubmitAppointment}
                 disabled={!appointmentDate || !appointmentTime}
@@ -426,7 +440,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
             </div>
             <h3 className="text-xl font-bold mb-2">Success!</h3>
             <p className="mb-6">{successMessage}</p>
-            <button
+            <button 
               className="bg-red-600 hover:bg-red-700 text-white py-2 px-6 rounded-lg transition-colors font-medium"
               onClick={() => setShowSuccessModal(false)}
             >

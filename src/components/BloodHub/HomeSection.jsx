@@ -15,8 +15,9 @@ import {
   onSnapshot,
   increment
 } from 'firebase/firestore';
+import { calculateDistance } from '../utils/geolocation';
 
-export default function HomeSection({ setActiveSection, isLoggedIn, userLocation, setShowAuthModal, setAuthMode, userProfile }) {
+export default function HomeSection({ setActiveSection, isLoggedIn, userLocation, setShowAuthModal, setAuthMode, userProfile, bloodDrives }) {
   const [bloodBanks, setBloodBanks] = useState([]);
   const [localBloodDrives, setLocalBloodDrives] = useState([]);
   const [loading, setLoading] = useState({
@@ -31,67 +32,65 @@ export default function HomeSection({ setActiveSection, isLoggedIn, userLocation
   const [successMessage, setSuccessMessage] = useState('');
   const [showSuccessModal, setShowSuccessModal] = useState(false);
 
-  // Fetch blood banks from Firestore
+  // Fetch nearby blood banks from Firestore with real-time updates
   useEffect(() => {
+    if (!userLocation) return;
+
     setLoading(prev => ({ ...prev, banks: true }));
-    
-    const bloodBanksQuery = query(
-      collection(db, 'bloodBanks'),
-      orderBy('name', 'asc')
-    );
-    
+    const bloodBanksQuery = collection(db, 'bloodBanks');
     const unsubscribe = onSnapshot(bloodBanksQuery, (snapshot) => {
-      const banks = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      const banks = snapshot.docs.map(doc => {
+        const data = doc.data();
+        const coordinates = { 
+          latitude: data.coordinates?.latitude || data.coordinates?.lat || userLocation.lat, 
+          longitude: data.coordinates?.longitude || data.coordinates?.lng || userLocation.lng 
+        };
+        const distance = calculateDistance(userLocation.lat, userLocation.lng, coordinates.latitude, coordinates.longitude);
+        return { id: doc.id, ...data, coordinates, distance };
+      }).filter(bank => bank.distance <= 100)
+        .sort((a, b) => a.distance - b.distance);
+
       setBloodBanks(banks);
       setLoading(prev => ({ ...prev, banks: false }));
     }, (error) => {
       console.error("Error fetching blood banks:", error);
       setLoading(prev => ({ ...prev, banks: false }));
     });
-    
+
+    return () => unsubscribe();
+  }, [userLocation]);
+
+  // Use blood drives from props or fetch from Firestore with real-time updates
+  useEffect(() => {
+    setLoading(prev => ({ ...prev, drives: true }));
+    const bloodDrivesQuery = query(
+      collection(db, 'bloodDrives'),
+      where('endDate', '>=', new Date()),
+      orderBy('endDate', 'asc')
+    );
+
+    const unsubscribe = onSnapshot(bloodDrivesQuery, (snapshot) => {
+      const drives = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          startDate: data.startDate?.toDate().toISOString() || data.startDate,
+          endDate: data.endDate?.toDate().toISOString() || data.endDate,
+        };
+      });
+
+      setLocalBloodDrives(drives);
+      setLoading(prev => ({ ...prev, drives: false }));
+    }, (error) => {
+      console.error("Error fetching blood drives:", error);
+      setLoading(prev => ({ ...prev, drives: false }));
+    });
+
     return () => unsubscribe();
   }, []);
 
-  // Use blood drives from props if available, otherwise fetch from Firestore
-  useEffect(() => {
-    if (bloodDrives && bloodDrives.length > 0) {
-      setLocalBloodDrives(bloodDrives);
-      setLoading(prev => ({ ...prev, drives: false }));
-    } else {
-      setLoading(prev => ({ ...prev, drives: true }));
-      
-      const bloodDrivesQuery = query(
-        collection(db, 'bloodDrives'),
-        where('endDate', '>=', new Date()),
-        orderBy('endDate', 'asc')
-      );
-      
-      const unsubscribe = onSnapshot(bloodDrivesQuery, (snapshot) => {
-        const drives = snapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            ...data,
-            startDate: data.startDate?.toDate().toISOString() || data.startDate,
-            endDate: data.endDate?.toDate().toISOString() || data.endDate,
-          };
-        });
-        
-        setLocalBloodDrives(drives);
-        setLoading(prev => ({ ...prev, drives: false }));
-      }, (error) => {
-        console.error("Error fetching blood drives:", error);
-        setLoading(prev => ({ ...prev, drives: false }));
-      });
-      
-      return () => unsubscribe();
-    }
-  }, [bloodDrives]);
-  
-  // Check user's registered drives from their profile
+  // Sync registered drives with user profile
   useEffect(() => {
     if (userProfile && userProfile.registeredDrives) {
       setRegisteredDrives(userProfile.registeredDrives.map(drive => drive.id));
@@ -106,14 +105,13 @@ export default function HomeSection({ setActiveSection, isLoggedIn, userLocation
       setShowAuthModal(true);
       return;
     }
-    
     setSelectedBank(bank);
     setShowScheduleModal(true);
   };
 
   const handleSubmitAppointment = async () => {
     if (!selectedBank || !appointmentDate || !appointmentTime) return;
-    
+
     try {
       const currentUser = auth.currentUser;
       if (!currentUser) {
@@ -121,7 +119,7 @@ export default function HomeSection({ setActiveSection, isLoggedIn, userLocation
         setShowAuthModal(true);
         return;
       }
-      
+
       const appointmentRef = await addDoc(collection(db, 'appointments'), {
         userId: currentUser.uid,
         userName: userProfile?.name || currentUser.displayName || 'Anonymous',
@@ -133,10 +131,10 @@ export default function HomeSection({ setActiveSection, isLoggedIn, userLocation
         status: 'scheduled',
         createdAt: serverTimestamp()
       });
-      
+
       const userRef = doc(db, 'users', currentUser.uid);
       const userSnap = await getDoc(userRef);
-      
+
       if (userSnap.exists()) {
         let appointments = userSnap.data().appointments || [];
         appointments.push({
@@ -147,23 +145,23 @@ export default function HomeSection({ setActiveSection, isLoggedIn, userLocation
           time: appointmentTime,
           status: 'scheduled'
         });
-        
+
         await updateDoc(userRef, { appointments });
       }
-      
+
       const bankRef = doc(db, 'bloodBanks', selectedBank.id);
       await updateDoc(bankRef, {
         appointmentCount: increment(1)
       });
-      
+
       setSuccessMessage(`Appointment scheduled at ${selectedBank.name} on ${appointmentDate} at ${appointmentTime}`);
       setShowSuccessModal(true);
       setShowScheduleModal(false);
       setAppointmentDate('');
       setAppointmentTime('');
     } catch (error) {
-      console.error("Error scheduling appointment:", error);
-      alert("There was an error scheduling your appointment. Please try again.");
+      console.error("Detailed error scheduling appointment:", error);
+      alert(`Failed to schedule appointment: ${error.message}`);
     }
   };
 
@@ -173,15 +171,15 @@ export default function HomeSection({ setActiveSection, isLoggedIn, userLocation
       setShowAuthModal(true);
       return;
     }
-    
+
+    if (registeredDrives.includes(drive.id)) {
+      alert("You are already registered for this blood drive.");
+      return;
+    }
+
     try {
       const currentUser = auth.currentUser;
-      
-      if (registeredDrives.includes(drive.id)) {
-        alert("You are already registered for this blood drive.");
-        return;
-      }
-      
+
       await addDoc(collection(db, 'userDrives'), {
         userId: currentUser.uid,
         userName: userProfile?.name || currentUser.displayName || 'Anonymous',
@@ -189,53 +187,51 @@ export default function HomeSection({ setActiveSection, isLoggedIn, userLocation
         driveId: drive.id,
         driveName: drive.name || drive.title,
         organizer: drive.organizer || drive.organization,
-        date: drive.date || drive.startDate,
+        date: drive.endDate || drive.startDate,
         time: drive.time || '09:00 AM',
         location: drive.location,
         registeredAt: serverTimestamp()
       });
-      
+
       if (drive.source !== 'external') {
         const driveRef = doc(db, 'bloodDrives', drive.id);
         await updateDoc(driveRef, {
           registered: increment(1)
         });
       }
-      
+
       const userRef = doc(db, 'users', currentUser.uid);
       const userSnap = await getDoc(userRef);
-      
+
       if (userSnap.exists()) {
         let drives = userSnap.data().registeredDrives || [];
         drives.push({
           id: drive.id,
           name: drive.name || drive.title,
           organizer: drive.organizer || drive.organization,
-          date: drive.date || drive.startDate,
+          date: drive.endDate || drive.startDate,
           time: drive.time || '09:00 AM',
           location: drive.location
         });
-        
+
         await updateDoc(userRef, { registeredDrives: drives });
       }
-      
+
       setRegisteredDrives(prev => [...prev, drive.id]);
-      
-      setSuccessMessage(`Successfully registered for ${drive.name || drive.title} on ${drive.date || new Date(drive.startDate).toLocaleDateString()}`);
+      setSuccessMessage(`Successfully registered for ${drive.name || drive.title} on ${drive.endDate || new Date(drive.startDate).toLocaleDateString()}`);
       setShowSuccessModal(true);
     } catch (error) {
-      console.error("Error registering for drive:", error);
-      alert("There was an error registering for this blood drive. Please try again.");
+      console.error("Detailed error registering for drive:", error);
+      alert(`Failed to register for blood drive: ${error.message}`);
     }
   };
-  
+
   const isUserRegistered = (driveId) => {
     return registeredDrives.includes(driveId);
   };
 
   const formatDate = (dateString) => {
     if (!dateString) return '';
-    
     try {
       const date = new Date(dateString);
       return date.toISOString().split('T')[0];
@@ -319,7 +315,7 @@ export default function HomeSection({ setActiveSection, isLoggedIn, userLocation
                 <div key={bank.id} className="bg-white p-4 rounded-xl shadow-sm">
                   <h4 className="font-medium mb-1">{bank.name}</h4>
                   <div className="flex items-center text-sm text-gray-500 mb-3">
-                    <MapPin size={14} className="mr-1" /> {bank.location} ({bank.distance || 'Unknown'})
+                    <MapPin size={14} className="mr-1" /> {bank.location} ({bank.distance.toFixed(2)} km)
                   </div>
 
                   <div className="mb-3">
@@ -402,7 +398,7 @@ export default function HomeSection({ setActiveSection, isLoggedIn, userLocation
                         </div>
                         <div className="flex items-center mb-1">
                           <Calendar size={14} className="mr-1 text-gray-500" />
-                          <span>{drive.date || formatDate(drive.startDate)}</span>
+                          <span>{drive.endDate || formatDate(drive.startDate)}</span>
                         </div>
                         <div className="flex items-center">
                           <Clock size={14} className="mr-1 text-gray-500" />

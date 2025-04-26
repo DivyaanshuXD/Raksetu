@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, collection, onSnapshot, query, where, orderBy, getDocs } from 'firebase/firestore';
+import { doc, getDoc, collection, onSnapshot, query, orderBy, where, getDocs } from 'firebase/firestore';
 import { getToken } from 'firebase/messaging';
 import { MapPin, Droplet, Bell, Menu, X, LogIn, ArrowLeft } from 'lucide-react';
 import { auth, db, messaging } from '../utils/firebase';
@@ -46,7 +46,7 @@ export default function BloodHub() {
     activeRequests: 0
   });
 
-  // Auth state listener with FCM subscription
+  // Auth state listener with FCM subscription and donations listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -86,22 +86,44 @@ export default function BloodHub() {
           });
         }
 
-        const userDonationsQuery = query(
-          collection(db, 'donations'),
-          where('donorId', '==', user.uid),
-          orderBy('timestamp', 'desc')
+        // Listen to appointments
+        const appointmentsQuery = query(
+          collection(db, 'appointments'),
+          where('userId', '==', user.uid)
         );
 
-        const donationsUnsubscribe = onSnapshot(userDonationsQuery, (snapshot) => {
-          const donationsList = snapshot.docs.map(doc => ({
+        let appointmentsList = [];
+        let drivesList = [];
+
+        const appointmentsUnsubscribe = onSnapshot(appointmentsQuery, (snapshot) => {
+          appointmentsList = snapshot.docs.map(doc => ({
             id: doc.id,
+            type: 'appointment',
             ...doc.data()
           }));
-          setDonations(donationsList);
-        });
+          setDonations([...appointmentsList, ...drivesList]);
+          console.log('Fetched Appointments:', appointmentsList);
+        }, (error) => console.error('Error fetching appointments:', error));
+
+        // Listen to userDrives
+        const userDrivesQuery = query(
+          collection(db, 'userDrives'),
+          where('userId', '==', user.uid)
+        );
+
+        const userDrivesUnsubscribe = onSnapshot(userDrivesQuery, (snapshot) => {
+          drivesList = snapshot.docs.map(doc => ({
+            id: doc.id,
+            type: 'drive',
+            ...doc.data()
+          }));
+          setDonations([...appointmentsList, ...drivesList]);
+          console.log('Fetched User Drives:', drivesList);
+        }, (error) => console.error('Error fetching user drives:', error));
 
         return () => {
-          donationsUnsubscribe();
+          appointmentsUnsubscribe();
+          userDrivesUnsubscribe();
         };
       } else {
         setIsLoggedIn(false);
@@ -123,7 +145,7 @@ export default function BloodHub() {
           fetchNearbyBloodBanks(latitude, longitude);
         },
         () => {
-          setUserLocation({ lat: 28.6139, lng: 77.2090 });
+          setUserLocation({ lat: 28.6139, lng: 77.2090 }); // Default to Delhi
           fetchNearbyBloodBanks(28.6139, 77.2090);
         }
       );
@@ -133,28 +155,28 @@ export default function BloodHub() {
     }
   }, []);
 
-  // Fetch nearby blood banks with real-time updates
-  const fetchNearbyBloodBanks = (lat, lng) => {
-    const unsubscribe = onSnapshot(collection(db, 'bloodBanks'), (snapshot) => {
-      const bloodBanksList = snapshot.docs.map(doc => {
+  // Fetch nearby blood banks
+  const fetchNearbyBloodBanks = async (lat, lng) => {
+    try {
+      const bloodBanksSnapshot = await getDocs(collection(db, 'bloodBanks'));
+      const bloodBanksList = bloodBanksSnapshot.docs.map(doc => {
         const data = doc.data();
         let coordinates = { latitude: data.coordinates?.latitude || data.coordinates?.lat || 28.6139, longitude: data.coordinates?.longitude || data.coordinates?.lng || 77.2090 };
         const distance = calculateDistance(lat, lng, coordinates.latitude, coordinates.longitude);
         return { id: doc.id, ...data, coordinates, distance };
       });
 
+      // Sort by distance and filter (e.g., within 100 km)
       const nearby = bloodBanksList
         .filter(bank => bank.distance <= 100)
         .sort((a, b) => a.distance - b.distance);
 
       setBloodBanks(nearby);
       console.log('Fetched Blood Banks:', nearby);
-    }, (error) => {
+    } catch (error) {
       console.error('Error fetching blood banks:', error);
       setBloodBanks([]);
-    });
-
-    return unsubscribe;
+    }
   };
 
   // Emergency requests listener
@@ -197,7 +219,7 @@ export default function BloodHub() {
     return () => unsubscribe();
   }, []);
 
-  // Fetch blood drives from backend API
+  // Fetch blood drives from Firestore only (removed external fetch)
   useEffect(() => {
     const fetchBloodDrives = async () => {
       try {
@@ -225,34 +247,14 @@ export default function BloodHub() {
           };
         });
 
-        const externalDrives = await fetch('https://raksetu-backend.vercel.app/blood-drives')
-          .then(response => response.json())
-          .then(drives => drives.map(drive => {
-            let normalizedCoordinates = { latitude: 28.6139, longitude: 77.2090 };
-            if (drive.coordinates) {
-              normalizedCoordinates = {
-                latitude: drive.coordinates.latitude || drive.coordinates.lat || 28.6139,
-                longitude: drive.coordinates.longitude || drive.coordinates.lng || 77.2090
-              };
-            }
-            return {
-              ...drive,
-              coordinates: normalizedCoordinates
-            };
-          }))
-          .catch(error => {
-            console.error('Error fetching external blood drives:', error);
-            return [];
-          });
-
-        const allDrives = [...localDrives, ...externalDrives];
-        console.log('Fetched Blood Drives:', allDrives);
-        allDrives.forEach((drive, index) => {
+        console.log('Fetched Blood Drives:', localDrives);
+        localDrives.forEach((drive, index) => {
           console.log(`Blood Drive ${index} Coordinates:`, drive.coordinates);
         });
-        setBloodDrives(allDrives);
+        setBloodDrives(localDrives);
       } catch (error) {
         console.error('Error fetching blood drives:', error);
+        setBloodDrives([]);
       }
     };
 
@@ -336,6 +338,7 @@ export default function BloodHub() {
             setShowAuthModal={setShowAuthModal}
             setAuthMode={setAuthMode}
             donations={donations}
+            setDonations={setDonations}
             userProfile={userProfile}
           />
         )}
