@@ -22,7 +22,6 @@ import RequestSuccessModal from './RequestSuccessModal';
 import CTASection from './CTASection';
 import ErrorBoundary from './ErrorBoundary';
 import ProfileSection from './ProfileSection';
-import Chatbot from './Chatbot';
 
 const bloodTypes = ['All', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
@@ -433,7 +432,6 @@ export default function BloodHub() {
         setShow={setShowRequestSuccessModal}
         setShowEmergencyModal={setShowEmergencyModal}
       />
-      <Chatbot />
     </div>
   );
 }
