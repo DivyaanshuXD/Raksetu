@@ -3,6 +3,7 @@ import { AlertTriangle, Calendar, Check, Phone, MapPin, Clock, Users, X } from '
 import { collection, addDoc, serverTimestamp, doc, updateDoc, increment, getDoc, arrayRemove, query, where, onSnapshot } from 'firebase/firestore';
 import { db, auth } from '../utils/firebase';
 import { calculateDistance } from '../utils/geolocation';
+import SuccessModal from './SuccessModal'; // Import the new modal
 import axios from 'axios';
 
 export default function DonateBloodSection({ setActiveSection, userProfile, setShowAuthModal, setAuthMode, setDonations }) {
@@ -19,8 +20,9 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
   const [mobileNumber, setMobileNumber] = useState('');
   const [otp, setOtp] = useState('');
   const [registeredDrives, setRegisteredDrives] = useState([]);
-  const [successMessage, setSuccessMessage] = useState('');
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [modalHeading, setModalHeading] = useState('');
+  const [modalMessage, setModalMessage] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
   const [error, setError] = useState(null);
@@ -41,7 +43,6 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
       setUserLocation({ lat: 28.6139, lng: 77.2090 });
     }
 
-    // Real-time listener for blood banks
     if (userLocation) {
       const bloodBanksQuery = query(collection(db, 'bloodBanks'));
       const unsubscribeBanks = onSnapshot(bloodBanksQuery, (snapshot) => {
@@ -53,7 +54,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
           };
           const distance = calculateDistance(userLocation.lat, userLocation.lng, coordinates.latitude, coordinates.longitude);
           return { id: doc.id, ...data, coordinates, distance };
-        }).filter(bank => bank.distance <= 100); // Only show banks within 100 km
+        }).filter(bank => bank.distance <= 100);
         setBloodBanks(banks);
         setLoading(false);
       }, (error) => {
@@ -62,7 +63,6 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
         setLoading(false);
       });
 
-      // Real-time listener for blood drives
       const bloodDrivesQuery = query(
         collection(db, 'bloodDrives'),
         where('endDate', '>=', new Date().toISOString())
@@ -78,7 +78,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
             doc.data().coordinates?.latitude || userLocation.lat,
             doc.data().coordinates?.longitude || userLocation.lng
           )
-        })).filter(drive => drive.distance <= 100); // Only show drives within 100 km
+        })).filter(drive => drive.distance <= 100);
         setBloodDrives(drives);
         setLoading(false);
       }, (error) => {
@@ -87,7 +87,6 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
         setLoading(false);
       });
 
-      // Load registered drives for the user
       if (auth.currentUser) {
         const userRef = doc(db, 'users', auth.currentUser.uid);
         const unsubscribeUser = onSnapshot(userRef, (docSnap) => {
@@ -125,7 +124,31 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
     setShowBankSelectionModal(false);
     setShowScheduleModal(true);
   };
-
+  const scheduleDonation = async (bloodBankId) => {
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        setError('Please sign in to schedule a donation');
+        return;
+      }
+  
+      const appointmentDate = new Date(); // Replace with user-selected date from UI
+      const response = await axios.post(`${import.meta.env.VITE_BACKEND_URL}/schedule-donation`, {
+        bloodBankId,
+        userId: user.uid,
+        appointmentDate: appointmentDate.toISOString()
+      });
+  
+      if (response.data.success) {
+        alert('Appointment scheduled successfully!');
+      } else {
+        setError('There was an error scheduling your appointment. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error scheduling donation:', error);
+      setError('There was an error scheduling your appointment. Please try again.');
+    }
+  };
   const handleSubmitAppointment = async () => {
     if (!selectedBank || !appointmentDate || !appointmentTime) return;
 
@@ -167,14 +190,17 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
         location: selectedBank.location
       }]);
 
-      setSuccessMessage(`Appointment scheduled at ${selectedBank.name} on ${appointmentDate} at ${appointmentTime}`);
+      setModalHeading('Appointment Scheduled Successfully!');
+      setModalMessage(`Appointment scheduled at ${selectedBank.name} on ${appointmentDate} at ${appointmentTime}`);
       setShowSuccessModal(true);
       setShowScheduleModal(false);
       setAppointmentDate('');
       setAppointmentTime('');
     } catch (error) {
       console.error("Error scheduling appointment:", error);
-      alert("There was an error scheduling your appointment. Please try again.");
+      setModalHeading('Error');
+      setModalMessage('There was an error scheduling your appointment. Please try again.');
+      setShowSuccessModal(true);
     }
   };
 
@@ -186,15 +212,17 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
     }
     setSelectedDrive({
       ...drive,
-      name: drive.title, // For compatibility with the modal
-      date: drive.startDate.split('T')[0], // Adjust date format
+      name: drive.title,
+      date: drive.startDate.split('T')[0],
     });
     setShowPreRegisterModal(true);
   };
 
   const handleSendOTP = async () => {
     if (!mobileNumber) {
-      alert('Please enter a mobile number.');
+      setModalHeading('Error');
+      setModalMessage('Please enter a mobile number.');
+      setShowSuccessModal(true);
       return;
     }
 
@@ -210,12 +238,15 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
       });
 
       if (response.data.success) {
-        setSuccessMessage(`OTP sent to ${mobileNumber}. Please enter the OTP to verify.`);
+        setModalHeading('OTP Sent!');
+        setModalMessage(`OTP sent to ${mobileNumber}. Please enter the OTP to verify.`);
         setShowSuccessModal(true);
       }
     } catch (error) {
       console.error('Error sending OTP:', error);
-      alert('Failed to send OTP. Please try again.');
+      setModalHeading('Error');
+      setModalMessage('Failed to send OTP. Please try again.');
+      setShowSuccessModal(true);
     } finally {
       setIsProcessing(false);
     }
@@ -223,7 +254,9 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
 
   const handleVerifyOTP = async () => {
     if (!otp) {
-      alert('Please enter the OTP.');
+      setModalHeading('Error');
+      setModalMessage('Please enter the OTP.');
+      setShowSuccessModal(true);
       return;
     }
 
@@ -245,11 +278,15 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
         setMobileNumber('');
         setOtp('');
       } else {
-        alert('Invalid OTP. Please try again.');
+        setModalHeading('Error');
+        setModalMessage('Invalid OTP. Please try again.');
+        setShowSuccessModal(true);
       }
     } catch (error) {
       console.error('Error verifying OTP:', error);
-      alert('Failed to verify OTP. Please try again.');
+      setModalHeading('Error');
+      setModalMessage('Failed to verify OTP. Please try again.');
+      setShowSuccessModal(true);
     } finally {
       setIsProcessing(false);
     }
@@ -299,11 +336,14 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
         time: drive.time,
         location: drive.location
       }]);
-      setSuccessMessage(`Successfully registered for ${drive.title} on ${drive.startDate.split('T')[0]}`);
+      setModalHeading('Registration Successful!');
+      setModalMessage(`Successfully registered for ${drive.title} on ${drive.startDate.split('T')[0]}`);
       setShowSuccessModal(true);
     } catch (error) {
       console.error("Error registering for drive:", error);
-      alert("There was an error registering for this blood drive. Please try again.");
+      setModalHeading('Error');
+      setModalMessage('There was an error registering for this blood drive. Please try again.');
+      setShowSuccessModal(true);
     } finally {
       setIsProcessing(false);
     }
@@ -332,11 +372,14 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
 
       setRegisteredDrives(prev => prev.filter(id => id !== drive.id));
       setDonations(prev => prev.filter(d => d.type !== 'drive' || d.driveName !== drive.title));
-      setSuccessMessage(`Successfully unregistered from ${drive.title} on ${drive.startDate.split('T')[0]}`);
+      setModalHeading('Unregistration Successful!');
+      setModalMessage(`Successfully unregistered from ${drive.title} on ${drive.startDate.split('T')[0]}`);
       setShowSuccessModal(true);
     } catch (error) {
       console.error("Error unregistering from drive:", error);
-      alert("There was an error unregistering from this blood drive. Please try again.");
+      setModalHeading('Error');
+      setModalMessage('There was an error unregistering from this blood drive. Please try again.');
+      setShowSuccessModal(true);
     } finally {
       setIsProcessing(false);
     }
@@ -706,23 +749,12 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
         </div>
       )}
 
-      {showSuccessModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full text-center">
-            <div className="h-12 w-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Check size={24} />
-            </div>
-            <h3 className="text-xl font-bold mb-2">Success!</h3>
-            <p className="mb-6">{successMessage}</p>
-            <button 
-              className="bg-red-600 hover:bg-red-700 text-white py-2 px-6 rounded-lg transition-colors font-medium"
-              onClick={() => setShowSuccessModal(false)}
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
+      <SuccessModal
+        show={showSuccessModal}
+        setShow={setShowSuccessModal}
+        heading={modalHeading}
+        message={modalMessage}
+      />
     </section>
   );
 }

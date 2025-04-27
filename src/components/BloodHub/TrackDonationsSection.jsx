@@ -1,9 +1,10 @@
-import { UserCircle, Heart, Users, Check, Award, Download, Calendar, MapPin, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { UserCircle, Heart, Users, Check, Award, Download, Calendar, MapPin, Trash2 } from 'lucide-react';
 import { db, auth } from '../utils/firebase';
 import { collection, addDoc, serverTimestamp, doc, getDoc, updateDoc, deleteDoc, query, where, onSnapshot, getDocs } from 'firebase/firestore';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
+import SuccessModal from './SuccessModal';
 
 export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, setAuthMode, userProfile, donations, setDonations, onDonationConfirmed }) {
   const [loading, setLoading] = useState(true);
@@ -18,11 +19,12 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
     { id: 2, name: "Apollo Blood Center", location: "MG Road, Bangalore" },
     { id: 3, name: "Fortis Blood Bank", location: "Andheri, Mumbai" },
   ]);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [modalHeading, setModalHeading] = useState('');
+  const [modalMessage, setModalMessage] = useState('');
 
-  // Handle new donation confirmation from EmergencySection
   const handleDonationConfirmed = (donationData) => {
     setCompletedDonations(prev => [...prev, donationData]);
-    // Save to Firebase for persistence
     if (auth.currentUser) {
       addDoc(collection(db, 'emergencyDonations'), {
         userId: auth.currentUser.uid,
@@ -36,7 +38,6 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
     setLoading(false);
   }, [donations]);
 
-  // Listen to completed donations in real-time
   useEffect(() => {
     if (!auth.currentUser) return;
 
@@ -57,7 +58,6 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
     return () => unsubscribe();
   }, []);
 
-  // Listen to emergency donations in real-time
   useEffect(() => {
     if (!auth.currentUser) return;
 
@@ -119,13 +119,17 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
         await updateDoc(userRef, { appointments });
       }
 
+      setModalHeading('Appointment Scheduled Successfully!');
+      setModalMessage(`Appointment scheduled at ${selectedBank.name} on ${appointmentDate} at ${appointmentTime}`);
+      setShowSuccessModal(true);
       setShowScheduleModal(false);
       setAppointmentDate('');
       setAppointmentTime('');
-      alert(`Appointment scheduled at ${selectedBank.name} on ${appointmentDate} at ${appointmentTime}`);
     } catch (error) {
       console.error("Error scheduling appointment:", error);
-      alert("There was an error scheduling your appointment. Please try again.");
+      setModalHeading('Error');
+      setModalMessage('There was an error scheduling your appointment. Please try again.');
+      setShowSuccessModal(true);
     }
   };
 
@@ -140,7 +144,6 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
       day: 'numeric' 
     });
     
-    // Determine badge based on donations
     let badgeLabel = 'First Donor';
     if (totalDonations >= 10) {
       badgeLabel = 'Platinum Lifesaver';
@@ -150,8 +153,6 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
       badgeLabel = 'Emergency Hero';
     }
     
-    // Create A4 sized certificate (210×297mm or 8.27×11.69 inches)
-    // Using 96 DPI: 794px x 1123px
     const certificate = document.createElement('div');
     certificate.style.width = '794px';
     certificate.style.height = '1123px';
@@ -160,17 +161,14 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
     certificate.style.boxSizing = 'border-box';
     
     certificate.innerHTML = `
-      <!-- Simple white background with red border -->
       <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
            background-color: white; z-index: 1;"></div>
       
-      <!-- Red border -->
       <div style="position: relative; width: 100%; height: 100%; 
            border: 5px solid #d32f2f; margin: 0; padding: 40px; z-index: 3; 
            box-sizing: border-box; display: flex; flex-direction: column; 
            font-family: 'Times New Roman', serif; color: #333333;">
         
-        <!-- Logo -->
         <div style="text-align: center; margin-bottom: 40px; margin-top: 20px;">
           <div style="display: inline-block; width: 80px; height: 80px;
                background-color: #d32f2f; border-radius: 50%; position: relative;">
@@ -179,7 +177,6 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
           </div>
         </div>
         
-        <!-- Certificate Title -->
         <div style="text-align: center; margin-bottom: 60px;">
           <h1 style="margin: 0; font-size: 36px; color: #d32f2f; text-transform: uppercase; 
                letter-spacing: 2px; font-weight: normal;">Certificate of</h1>
@@ -188,7 +185,6 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
           <div style="width: 60%; margin: 15px auto; height: 1px; background-color: #d32f2f;"></div>
         </div>
         
-        <!-- Main content -->
         <div style="text-align: center; flex-grow: 1; display: flex; flex-direction: column; 
              justify-content: flex-start; margin-bottom: 40px;">
           <p style="font-size: 18px; margin-bottom: 20px;">This certifies that</p>
@@ -198,7 +194,6 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
             blood donation, directly contributing to saving lives in our community.
           </p>
           
-          <!-- Stats section -->
           <div style="display: flex; justify-content: space-around; margin: 60px 0;">
             <div style="text-align: center; width: 120px;">
               <div style="font-size: 36px; font-weight: bold; color: #d32f2f;">${totalDonations}</div>
@@ -214,20 +209,17 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
             </div>
           </div>
           
-          <!-- Additional info -->
           <div style="display: flex; justify-content: space-between; margin: 20px 80px; font-size: 16px;">
             <div><strong>Blood Type:</strong> ${bloodType}</div>
             <div><strong>Date Issued:</strong> ${today}</div>
           </div>
           
-          <!-- Badge -->
           <div style="background-color: rgba(211, 47, 47, 0.05); border: 1px solid #d32f2f; 
                border-radius: 8px; padding: 10px; margin: 30px auto; width: 60%;">
             <p style="margin: 0; font-size: 16px;"><strong>Achievement:</strong> ${badgeLabel}</p>
           </div>
         </div>
         
-        <!-- Footer with signatures -->
         <div style="margin-top: auto; text-align: center;">
           <p style="font-style: italic; margin-bottom: 25px;">Thank you for your life-saving contribution!</p>
           <div style="display: flex; justify-content: center; align-items: flex-end;">
@@ -237,9 +229,7 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
                 <span style="font-size: 12px;">Blood Donation Initiative</span>
               </div>
             </div>
-            
-                
-              </div>
+            <div style="margin: 0 40px; text-align: center;">
               <div style="border-top: 1px solid #333; padding-top: 5px; width: 200px; font-size: 12px;">
                 Certificate ID: ${Date.now().toString(36).toUpperCase()}
               </div>
@@ -258,9 +248,7 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
       allowTaint: true
     }).then(canvas => {
       const imgData = canvas.toDataURL('image/png');
-      // A4 size in points (595.28 x 841.89) for portrait orientation in jsPDF
       const pdf = new jsPDF('p', 'pt', 'a4');
-      // Calculate scaling to fit the image to A4 size
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
       pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
@@ -268,6 +256,7 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
       document.body.removeChild(certificate);
     });
   };
+
   const totalDonations = completedDonations.length;
   const totalImpactPoints = totalDonations * 10;
   const bloodType = userProfile?.bloodType || 'Not specified';
@@ -314,11 +303,14 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
       });
 
       setDonations([]);
-
-      alert('All scheduled donations and registered blood drives have been cleared.');
+      setModalHeading('Cleared Successfully!');
+      setModalMessage('All scheduled donations and registered blood drives have been cleared.');
+      setShowSuccessModal(true);
     } catch (error) {
       console.error('Error clearing data:', error);
-      alert('There was an error clearing your data. Please check your Firestore permissions or try again.');
+      setModalHeading('Error');
+      setModalMessage('There was an error clearing your data. Please check your Firestore permissions or try again.');
+      setShowSuccessModal(true);
     }
   };
 
@@ -608,10 +600,11 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
 
         {showClearModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl p-6 max-w-md w-full">
-              <h3 className="text-xl font-bold mb-4">Clear All Scheduled Activities</h3>
-              <p className="mb-6 text-gray-600">Are you sure you want to clear all scheduled donations and registered blood drives? This action cannot be undone.</p>
-              
+            <div className="bg-white rounded-xl p-6 max-w-md w-full text-center">
+              <h3 className="text-xl font-semibold mb-2">Clear All Scheduled Activities</h3>
+              <p className="text-gray-600 mb-6">
+                Are you sure you want to clear all scheduled donations and registered blood drives? This action cannot be undone.
+              </p>
               <div className="flex gap-3">
                 <button 
                   className="flex-1 bg-gray-200 hover:bg-gray-300 py-2 rounded-lg transition-colors font-medium"
@@ -629,6 +622,13 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
             </div>
           </div>
         )}
+
+        <SuccessModal
+          show={showSuccessModal}
+          setShow={setShowSuccessModal}
+          heading={modalHeading}
+          message={modalMessage}
+        />
       </div>
     </section>
   );
