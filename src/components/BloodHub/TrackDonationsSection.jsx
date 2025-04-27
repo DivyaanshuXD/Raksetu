@@ -5,7 +5,7 @@ import { collection, addDoc, serverTimestamp, doc, getDoc, updateDoc, deleteDoc,
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 
-export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, setAuthMode, userProfile, donations, setDonations }) {
+export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, setAuthMode, userProfile, donations, setDonations, onDonationConfirmed }) {
   const [loading, setLoading] = useState(true);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showClearModal, setShowClearModal] = useState(false);
@@ -18,6 +18,19 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
     { id: 2, name: "Apollo Blood Center", location: "MG Road, Bangalore" },
     { id: 3, name: "Fortis Blood Bank", location: "Andheri, Mumbai" },
   ]);
+
+  // Handle new donation confirmation from EmergencySection
+  const handleDonationConfirmed = (donationData) => {
+    setCompletedDonations(prev => [...prev, donationData]);
+    // Save to Firebase for persistence
+    if (auth.currentUser) {
+      addDoc(collection(db, 'emergencyDonations'), {
+        userId: auth.currentUser.uid,
+        ...donationData,
+        createdAt: serverTimestamp(),
+      });
+    }
+  };
 
   useEffect(() => {
     setLoading(false);
@@ -40,6 +53,26 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
       setCompletedDonations(completedList);
       console.log('Fetched Completed Donations:', completedList);
     }, (error) => console.error('Error fetching completed donations:', error));
+
+    return () => unsubscribe();
+  }, []);
+
+  // Listen to emergency donations in real-time
+  useEffect(() => {
+    if (!auth.currentUser) return;
+
+    const emergencyDonationsQuery = query(
+      collection(db, 'emergencyDonations'),
+      where('userId', '==', auth.currentUser.uid)
+    );
+
+    const unsubscribe = onSnapshot(emergencyDonationsQuery, (snapshot) => {
+      const emergencyDonations = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setCompletedDonations(prev => [...prev, ...emergencyDonations]);
+    }, (error) => console.error('Error fetching emergency donations:', error));
 
     return () => unsubscribe();
   }, []);
@@ -97,75 +130,145 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
   };
 
   const generateCertificate = () => {
-    const totalDonations = completedDonations.length; // Use completed donations
+    const totalDonations = completedDonations.length;
     const totalImpactPoints = totalDonations * 10;
     const bloodType = userProfile?.bloodType || 'Not specified';
     const username = userProfile?.name || 'Anonymous';
-
+    const today = new Date().toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+    
+    // Determine badge based on donations
+    let badgeLabel = 'First Donor';
+    if (totalDonations >= 10) {
+      badgeLabel = 'Platinum Lifesaver';
+    } else if (totalDonations >= 5) {
+      badgeLabel = 'Gold Lifesaver';
+    } else if (totalDonations >= 2) {
+      badgeLabel = 'Emergency Hero';
+    }
+    
+    // Create A4 sized certificate (210×297mm or 8.27×11.69 inches)
+    // Using 96 DPI: 794px x 1123px
     const certificate = document.createElement('div');
-    certificate.style.width = '800px';
-    certificate.style.height = '600px';
-    certificate.style.padding = '40px';
-    certificate.style.background = 'linear-gradient(135deg, #ffe6e6 0%, #fff5f5 100%)';
-    certificate.style.border = '10px double #d32f2f';
-    certificate.style.borderRadius = '15px';
-    certificate.style.fontFamily = "'Georgia', serif";
+    certificate.style.width = '794px';
+    certificate.style.height = '1123px';
     certificate.style.position = 'relative';
-    certificate.style.boxShadow = '0 10px 20px rgba(0, 0, 0, 0.1)';
     certificate.style.overflow = 'hidden';
-
-    // Add decorative elements
+    certificate.style.boxSizing = 'border-box';
+    
     certificate.innerHTML = `
-      <div style="position: absolute; top: 20px; left: 20px; width: 50px; height: 50px; background: url('https://cdn-icons-png.flaticon.com/512/599/599528.png') no-repeat center; background-size: contain; opacity: 0.2;"></div>
-      <div style="position: absolute; bottom: 20px; right: 20px; width: 50px; height: 50px; background: url('https://cdn-icons-png.flaticon.com/512/599/599528.png') no-repeat center; background-size: contain; opacity: 0.2;"></div>
-      <h1 style="text-align: center; color: #d32f2f; font-size: 36px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 2px;">Certificate of Appreciation</h1>
-      <h2 style="text-align: center; color: #333; font-size: 24px; margin-bottom: 20px;">Awarded to ${username}</h2>
-      <div style="text-align: center; margin: 20px 0;">
-        <p style="font-size: 18px; color: #555;">For your generous contribution to saving lives through blood donation.</p>
-        <p style="font-size: 16px; color: #777;">Blood Type: ${bloodType}</p>
-        <p style="font-size: 16px; color: #777;">Date: ${new Date().toLocaleDateString()}</p>
-      </div>
-      <div style="display: flex; justify-content: space-around; margin: 30px 0; text-align: center;">
-        <div>
-          <p style="font-size: 20px; color: #d32f2f; font-weight: bold;">${totalDonations}</p>
-          <p style="font-size: 14px; color: #555;">Total Donations</p>
+      <!-- Simple white background with red border -->
+      <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+           background-color: white; z-index: 1;"></div>
+      
+      <!-- Red border -->
+      <div style="position: relative; width: 100%; height: 100%; 
+           border: 5px solid #d32f2f; margin: 0; padding: 40px; z-index: 3; 
+           box-sizing: border-box; display: flex; flex-direction: column; 
+           font-family: 'Times New Roman', serif; color: #333333;">
+        
+        <!-- Logo -->
+        <div style="text-align: center; margin-bottom: 40px; margin-top: 20px;">
+          <div style="display: inline-block; width: 80px; height: 80px;
+               background-color: #d32f2f; border-radius: 50%; position: relative;">
+            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                 font-size: 40px; color: white; font-weight: bold;">R</div>
+          </div>
         </div>
-        <div>
-          <p style="font-size: 20px; color: #d32f2f; font-weight: bold;">${totalDonations}</p>
-          <p style="font-size: 14px; color: #555;">Lives Saved</p>
+        
+        <!-- Certificate Title -->
+        <div style="text-align: center; margin-bottom: 60px;">
+          <h1 style="margin: 0; font-size: 36px; color: #d32f2f; text-transform: uppercase; 
+               letter-spacing: 2px; font-weight: normal;">Certificate of</h1>
+          <h1 style="margin: 0; font-size: 36px; color: #d32f2f; text-transform: uppercase; 
+               letter-spacing: 2px; font-weight: normal;">Appreciation</h1>
+          <div style="width: 60%; margin: 15px auto; height: 1px; background-color: #d32f2f;"></div>
         </div>
-        <div>
-          <p style="font-size: 20px; color: #d32f2f; font-weight: bold;">${totalImpactPoints}</p>
-          <p style="font-size: 14px; color: #555;">Impact Points</p>
+        
+        <!-- Main content -->
+        <div style="text-align: center; flex-grow: 1; display: flex; flex-direction: column; 
+             justify-content: flex-start; margin-bottom: 40px;">
+          <p style="font-size: 18px; margin-bottom: 20px;">This certifies that</p>
+          <h2 style="font-size: 36px; margin: 5px 0 30px; font-family: 'Brush Script MT', cursive;">${username}</h2>
+          <p style="font-size: 18px; margin-bottom: 25px; line-height: 1.5; padding: 0 40px;">
+            has demonstrated exceptional generosity and compassion through the selfless act of
+            blood donation, directly contributing to saving lives in our community.
+          </p>
+          
+          <!-- Stats section -->
+          <div style="display: flex; justify-content: space-around; margin: 60px 0;">
+            <div style="text-align: center; width: 120px;">
+              <div style="font-size: 36px; font-weight: bold; color: #d32f2f;">${totalDonations}</div>
+              <div style="font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Donations</div>
+            </div>
+            <div style="text-align: center; width: 120px;">
+              <div style="font-size: 36px; font-weight: bold; color: #d32f2f;">${totalDonations}</div>
+              <div style="font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Lives Saved</div>
+            </div>
+            <div style="text-align: center; width: 120px;">
+              <div style="font-size: 36px; font-weight: bold; color: #d32f2f;">${totalImpactPoints}</div>
+              <div style="font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Impact Points</div>
+            </div>
+          </div>
+          
+          <!-- Additional info -->
+          <div style="display: flex; justify-content: space-between; margin: 20px 80px; font-size: 16px;">
+            <div><strong>Blood Type:</strong> ${bloodType}</div>
+            <div><strong>Date Issued:</strong> ${today}</div>
+          </div>
+          
+          <!-- Badge -->
+          <div style="background-color: rgba(211, 47, 47, 0.05); border: 1px solid #d32f2f; 
+               border-radius: 8px; padding: 10px; margin: 30px auto; width: 60%;">
+            <p style="margin: 0; font-size: 16px;"><strong>Achievement:</strong> ${badgeLabel}</p>
+          </div>
         </div>
-      </div>
-      <div style="text-align: center; margin: 20px 0;">
-        <p style="font-size: 16px; color: #555;"><strong>Milestone Badge:</strong> ${totalDonations >= 2 ? 'Emergency Hero' : 'First Donor'}</p>
-        <img src="https://via.placeholder.com/100" alt="QR Code" style="width: 80px; height: 80px; margin-top: 10px;">
-        <p style="font-size: 12px; color: #777;">Scan to view donor profile</p>
-      </div>
-      <div style="position: absolute; bottom: 40px; width: 100%; text-align: center;">
-        <p style="font-size: 14px; color: #777; font-style: italic;">Thank you for your life-saving contribution!</p>
-        <div style="display: flex; justify-content: space-around; margin-top: 20px;">
-          <div>
-            <p style="font-size: 14px; color: #555;">____________________</p>
-            <p style="font-size: 12px; color: #777;">Raksetu Team</p>
+        
+        <!-- Footer with signatures -->
+        <div style="margin-top: auto; text-align: center;">
+          <p style="font-style: italic; margin-bottom: 25px;">Thank you for your life-saving contribution!</p>
+          <div style="display: flex; justify-content: center; align-items: flex-end;">
+            <div style="margin: 0 40px; text-align: center;">
+              <div style="border-top: 1px solid #333; padding-top: 5px; width: 200px;">
+                <strong>Raksetu Team</strong><br>
+                <span style="font-size: 12px;">Blood Donation Initiative</span>
+              </div>
+            </div>
+            
+                
+              </div>
+              <div style="border-top: 1px solid #333; padding-top: 5px; width: 200px; font-size: 12px;">
+                Certificate ID: ${Date.now().toString(36).toUpperCase()}
+              </div>
+            </div>
           </div>
         </div>
       </div>
     `;
-
+    
     document.body.appendChild(certificate);
-    html2canvas(certificate, { scale: 2 }).then(canvas => {
+    
+    html2canvas(certificate, { 
+      scale: 2,
+      logging: false,
+      useCORS: true,
+      allowTaint: true
+    }).then(canvas => {
       const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('l', 'px', [800, 600]); // Landscape orientation
-      pdf.addImage(imgData, 'PNG', 0, 0, 800, 600);
-      pdf.save(`Donor_Certificate_${username}.pdf`);
+      // A4 size in points (595.28 x 841.89) for portrait orientation in jsPDF
+      const pdf = new jsPDF('p', 'pt', 'a4');
+      // Calculate scaling to fit the image to A4 size
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`Raksetu_Donor_Certificate_${username}.pdf`);
       document.body.removeChild(certificate);
     });
   };
-
-  const totalDonations = completedDonations.length; // Use completed donations for stats
+  const totalDonations = completedDonations.length;
   const totalImpactPoints = totalDonations * 10;
   const bloodType = userProfile?.bloodType || 'Not specified';
   const username = userProfile?.name || 'Anonymous';
@@ -173,7 +276,6 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
   const registeredDrives = donations.filter(d => d.type === 'drive');
   const appointments = donations.filter(d => d.type === 'appointment');
 
-  // Helper function to format dates
   const formatDate = (dateValue) => {
     if (!dateValue) return 'Unknown Date';
     try {
@@ -195,26 +297,22 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
     try {
       const currentUser = auth.currentUser;
 
-      // Fetch and delete all appointments
       const appointmentsQuery = query(collection(db, 'appointments'), where('userId', '==', currentUser.uid));
       const appointmentsSnapshot = await getDocs(appointmentsQuery);
       const appointmentDeletions = appointmentsSnapshot.docs.map(doc => deleteDoc(doc.ref));
       await Promise.all(appointmentDeletions);
 
-      // Fetch and delete all userDrives
       const userDrivesQuery = query(collection(db, 'userDrives'), where('userId', '==', currentUser.uid));
       const userDrivesSnapshot = await getDocs(userDrivesQuery);
       const userDrivesDeletions = userDrivesSnapshot.docs.map(doc => deleteDoc(doc.ref));
       await Promise.all(userDrivesDeletions);
 
-      // Clear user profile appointments and registeredDrives
       const userRef = doc(db, 'users', currentUser.uid);
       await updateDoc(userRef, {
         appointments: [],
         registeredDrives: []
       });
 
-      // Reset donations state
       setDonations([]);
 
       alert('All scheduled donations and registered blood drives have been cleared.');
@@ -361,14 +459,18 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
                         <Calendar size={16} className="text-gray-500" />
                         <div>
                           <div className="font-medium">
-                            {donation.type === 'appointment' ? `Donation at ${donation.bankName}` : `Blood Drive: ${donation.driveName}`}
+                            {donation.type === 'appointment' ? 
+                              `Donation at ${donation.bankName}` : 
+                              donation.type === 'emergency' ? 
+                              `Emergency Donation at ${donation.hospital}` : 
+                              `Blood Drive: ${donation.driveName}`}
                           </div>
                           <div className="text-sm text-gray-500">
                             {formatDate(donation.date)} at {donation.time || 'Not specified'}
                           </div>
                           <div className="text-sm text-gray-500 flex items-center">
                             <MapPin size={14} className="mr-1" />
-                            {donation.location || 'Location not specified'}
+                            {donation.location || donation.hospital || 'Location not specified'}
                           </div>
                         </div>
                       </div>
@@ -377,7 +479,7 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
                 </div>
               ) : (
                 <div className="text-center py-10">
-                  <p className="text-gray-500">No donations completed yet.</p>
+                  <p className="text-gray-500">No completed donations yet.</p>
                 </div>
               )}
             </div>
@@ -448,86 +550,86 @@ export default function TrackDonationsSection({ isLoggedIn, setShowAuthModal, se
             </div>
           </div>
         )}
+
+        {showScheduleModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl p-6 max-w-md w-full">
+              <h3 className="text-xl font-bold mb-4">Schedule Donation at {selectedBank?.name}</h3>
+              
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-1">Date</label>
+                <input 
+                  type="date" 
+                  className="w-full border border-gray-300 rounded-lg p-2"
+                  min={new Date().toISOString().split('T')[0]}
+                  value={appointmentDate}
+                  onChange={(e) => setAppointmentDate(e.target.value)}
+                />
+              </div>
+              
+              <div className="mb-6">
+                <label className="block text-sm font-medium mb-1">Time</label>
+                <select 
+                  className="w-full border border-gray-300 rounded-lg p-2"
+                  value={appointmentTime}
+                  onChange={(e) => setAppointmentTime(e.target.value)}
+                >
+                  <option value="">Select a time</option>
+                  <option value="09:00 AM">09:00 AM</option>
+                  <option value="10:00 AM">10:00 AM</option>
+                  <option value="11:00 AM">11:00 AM</option>
+                  <option value="12:00 PM">12:00 PM</option>
+                  <option value="01:00 PM">01:00 PM</option>
+                  <option value="02:00 PM">02:00 PM</option>
+                  <option value="03:00 PM">03:00 PM</option>
+                  <option value="04:00 PM">04:00 PM</option>
+                  <option value="05:00 PM">05:00 PM</option>
+                </select>
+              </div>
+              
+              <div className="flex gap-3">
+                <button 
+                  className="flex-1 bg-gray-200 hover:bg-gray-300 py-2 rounded-lg transition-colors font-medium"
+                  onClick={() => setShowScheduleModal(false)}
+                >
+                  Cancel
+                </button>
+                <button 
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg transition-colors font-medium"
+                  onClick={handleSubmitAppointment}
+                  disabled={!appointmentDate || !appointmentTime}
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showClearModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl p-6 max-w-md w-full">
+              <h3 className="text-xl font-bold mb-4">Clear All Scheduled Activities</h3>
+              <p className="mb-6 text-gray-600">Are you sure you want to clear all scheduled donations and registered blood drives? This action cannot be undone.</p>
+              
+              <div className="flex gap-3">
+                <button 
+                  className="flex-1 bg-gray-200 hover:bg-gray-300 py-2 rounded-lg transition-colors font-medium"
+                  onClick={() => setShowClearModal(false)}
+                >
+                  Cancel
+                </button>
+                <button 
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg transition-colors font-medium"
+                  onClick={handleConfirmClear}
+                >
+                  Confirm Clear
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
-
-      {showScheduleModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full">
-            <h3 className="text-xl font-bold mb-4">Schedule Donation at {selectedBank?.name}</h3>
-            
-            <div className="mb-4">
-              <label className="block text-sm font-medium mb-1">Date</label>
-              <input 
-                type="date" 
-                className="w-full border border-gray-300 rounded-lg p-2"
-                min={new Date().toISOString().split('T')[0]}
-                value={appointmentDate}
-                onChange={(e) => setAppointmentDate(e.target.value)}
-              />
-            </div>
-            
-            <div className="mb-6">
-              <label className="block text-sm font-medium mb-1">Time</label>
-              <select 
-                className="w-full border border-gray-300 rounded-lg p-2"
-                value={appointmentTime}
-                onChange={(e) => setAppointmentTime(e.target.value)}
-              >
-                <option value="">Select a time</option>
-                <option value="09:00 AM">09:00 AM</option>
-                <option value="10:00 AM">10:00 AM</option>
-                <option value="11:00 AM">11:00 AM</option>
-                <option value="12:00 PM">12:00 PM</option>
-                <option value="01:00 PM">01:00 PM</option>
-                <option value="02:00 PM">02:00 PM</option>
-                <option value="03:00 PM">03:00 PM</option>
-                <option value="04:00 PM">04:00 PM</option>
-                <option value="05:00 PM">05:00 PM</option>
-              </select>
-            </div>
-            
-            <div className="flex gap-3">
-              <button 
-                className="flex-1 bg-gray-200 hover:bg-gray-300 py-2 rounded-lg transition-colors font-medium"
-                onClick={() => setShowScheduleModal(false)}
-              >
-                Cancel
-              </button>
-              <button 
-                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg transition-colors font-medium"
-                onClick={handleSubmitAppointment}
-                disabled={!appointmentDate || !appointmentTime}
-              >
-                Confirm
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showClearModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full">
-            <h3 className="text-xl font-bold mb-4">Clear All Scheduled Activities</h3>
-            <p className="mb-6 text-gray-600">Are you sure you want to clear all scheduled donations and registered blood drives? This action cannot be undone.</p>
-            
-            <div className="flex gap-3">
-              <button 
-                className="flex-1 bg-gray-200 hover:bg-gray-300 py-2 rounded-lg transition-colors font-medium"
-                onClick={() => setShowClearModal(false)}
-              >
-                Cancel
-              </button>
-              <button 
-                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg transition-colors font-medium"
-                onClick={handleConfirmClear}
-              >
-                Confirm Clear
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </section>
   );
 }
