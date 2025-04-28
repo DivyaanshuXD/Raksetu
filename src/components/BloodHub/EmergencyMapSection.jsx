@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { collection, onSnapshot } from 'firebase/firestore';
+import { db } from '../utils/firebase'; // Adjust based on your Firebase setup
+import { calculateDistance } from '../utils/geolocation';
 
 const bloodTypes = ['All', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 const rareBloodTypes = ['O h'];
@@ -18,7 +21,7 @@ const rareBloodIcon = new L.Icon({
   iconSize: [25, 41],
   iconAnchor: [12, 41],
   popupAnchor: [0, -41],
-  className: 'hue-rotate-90'
+  className: 'hue-rotate-90',
 });
 
 const newEmergencyIcon = new L.Icon({
@@ -26,7 +29,7 @@ const newEmergencyIcon = new L.Icon({
   iconSize: [25, 41],
   iconAnchor: [12, 41],
   popupAnchor: [0, -41],
-  className: 'animate-pulse'
+  className: 'animate-pulse',
 });
 
 const nearbyIcon = new L.Icon({
@@ -34,7 +37,7 @@ const nearbyIcon = new L.Icon({
   iconSize: [25, 41],
   iconAnchor: [12, 41],
   popupAnchor: [0, -41],
-  className: 'hue-rotate-180'
+  className: 'hue-rotate-180',
 });
 
 const userLocationIcon = new L.Icon({
@@ -49,13 +52,15 @@ const bloodBankIcon = new L.Icon({
   iconSize: [25, 41],
   iconAnchor: [12, 41],
   popupAnchor: [0, -41],
-  className: 'hue-rotate-45' // Different color for blood banks
+  className: 'hue-rotate-45',
 });
 
-export default function EmergencyMapSection({ userLocation, emergencyRequests = [], bloodDrives = [], bloodBanks = [], setActiveSection }) {
+export default function EmergencyMapSection({ userLocation, emergencyRequests = [], bloodDrives = [], setActiveSection }) {
   const [bloodTypeFilter, setBloodTypeFilter] = useState('All');
   const [filteredEmergencies, setFilteredEmergencies] = useState([]);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [bloodBanks, setBloodBanks] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -76,13 +81,60 @@ export default function EmergencyMapSection({ userLocation, emergencyRequests = 
     }
   }, [bloodTypeFilter, emergencyRequests]);
 
+  useEffect(() => {
+    if (userLocation) {
+      const unsubscribe = onSnapshot(collection(db, 'bloodBanks'), (snapshot) => {
+        const banks = snapshot.docs.map(doc => {
+          const data = doc.data();
+          // Add approximate coordinates for Hyderabad blood banks if not present
+          const coordinates = data.coordinates || {
+            latitude: 17.3850, // Central Hyderabad coordinates
+            longitude: 78.4867,
+          };
+          const distance = calculateDistance(
+            userLocation.lat,
+            userLocation.lng,
+            coordinates.latitude,
+            coordinates.longitude
+          );
+          return {
+            id: doc.id,
+            ...data,
+            coordinates,
+            distance,
+            location: data.address || 'Hyderabad, Telangana',
+            availability: parseAvailability(data.availability), // Parse availability string
+          };
+        }).filter(bank => bank.distance <= 100); // Keep the same distance filter
+        setBloodBanks(banks);
+        setLoading(false);
+      }, (error) => {
+        console.error('Error fetching blood banks:', error);
+        setLoading(false);
+      });
+
+      return () => unsubscribe();
+    }
+  }, [userLocation]);
+
+  // Parse availability string (e.g., "A+Ve:9, O+Ve:16, B+Ve:4, O-") into an object
+  const parseAvailability = (availabilityString) => {
+    if (!availabilityString || availabilityString.includes('Not Available')) return {};
+    const entries = availabilityString.split(',').map(item => {
+      const [type, count] = item.trim().split(':');
+      return [type.replace('Ve', ''), parseInt(count) || 0];
+    });
+    return Object.fromEntries(entries);
+  };
+
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
     const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return Math.round(R * c * 10) / 10;
   };
@@ -102,6 +154,8 @@ export default function EmergencyMapSection({ userLocation, emergencyRequests = 
     if (isNearby) return nearbyIcon;
     return customIcon;
   };
+
+  if (loading) return <p>Loading map...</p>;
 
   return (
     <section className="py-16 bg-gray-50">
@@ -129,7 +183,7 @@ export default function EmergencyMapSection({ userLocation, emergencyRequests = 
                   if (!emergency.coordinates) return null;
                   const coords = {
                     lat: emergency.coordinates.latitude,
-                    lng: emergency.coordinates.longitude
+                    lng: emergency.coordinates.longitude,
                   };
                   const isRare = rareBloodTypes.includes(emergency.bloodType);
                   return (
@@ -160,10 +214,9 @@ export default function EmergencyMapSection({ userLocation, emergencyRequests = 
                   );
                 })}
                 {bloodBanks.map((bank) => {
-                  if (!bank.coordinates) return null;
                   const coords = {
                     lat: bank.coordinates.latitude,
-                    lng: bank.coordinates.longitude
+                    lng: bank.coordinates.longitude,
                   };
                   return (
                     <Marker

@@ -3,7 +3,7 @@ import { AlertTriangle, Calendar, Check, Phone, MapPin, Clock, Users, X } from '
 import { collection, addDoc, serverTimestamp, doc, updateDoc, increment, getDoc, arrayRemove, query, where, onSnapshot } from 'firebase/firestore';
 import { db, auth } from '../utils/firebase';
 import { calculateDistance } from '../utils/geolocation';
-import SuccessModal from './SuccessModal'; // Import the new modal
+import SuccessModal from './SuccessModal';
 import axios from 'axios';
 
 export default function DonateBloodSection({ setActiveSection, userProfile, setShowAuthModal, setAuthMode, setDonations }) {
@@ -42,7 +42,9 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
     } else {
       setUserLocation({ lat: 28.6139, lng: 77.2090 });
     }
+  }, []);
 
+  useEffect(() => {
     if (userLocation) {
       const bloodBanksQuery = query(collection(db, 'bloodBanks'));
       const unsubscribeBanks = onSnapshot(bloodBanksQuery, (snapshot) => {
@@ -50,10 +52,17 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
           const data = doc.data();
           const coordinates = {
             latitude: data.coordinates?.latitude || userLocation.lat,
-            longitude: data.coordinates?.longitude || userLocation.lng
+            longitude: data.coordinates?.longitude || userLocation.lng,
           };
           const distance = calculateDistance(userLocation.lat, userLocation.lng, coordinates.latitude, coordinates.longitude);
-          return { id: doc.id, ...data, coordinates, distance };
+          return {
+            id: doc.id,
+            ...data,
+            coordinates,
+            distance,
+            location: data.address || 'Hyderabad, Telangana',
+            availability: parseAvailability(data.availability), // Parse availability string
+          };
         }).filter(bank => bank.distance <= 100);
         setBloodBanks(banks);
         setLoading(false);
@@ -77,7 +86,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
             userLocation.lng,
             doc.data().coordinates?.latitude || userLocation.lat,
             doc.data().coordinates?.longitude || userLocation.lng
-          )
+          ),
         })).filter(drive => drive.distance <= 100);
         setBloodDrives(drives);
         setLoading(false);
@@ -110,13 +119,28 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
     }
   }, [userLocation, auth.currentUser]);
 
-  const handleScheduleVisit = () => {
+  // Parse availability string (e.g., "A+Ve:9, O+Ve:16, B+Ve:4, O-") into an object
+  const parseAvailability = (availabilityString) => {
+    if (!availabilityString || availabilityString.includes('Not Available')) return {};
+    const entries = availabilityString.split(',').map(item => {
+      const [type, count] = item.trim().split(':');
+      return [type.replace('Ve', ''), parseInt(count) || 0];
+    });
+    return Object.fromEntries(entries);
+  };
+
+  const handleScheduleVisit = (bank) => {
     if (!auth.currentUser) {
       setAuthMode('login');
       setShowAuthModal(true);
       return;
     }
-    setShowBankSelectionModal(true);
+    if (bank) {
+      setSelectedBank(bank);
+      setShowScheduleModal(true);
+    } else {
+      setShowBankSelectionModal(true);
+    }
   };
 
   const handleSelectBank = (bank) => {
@@ -124,6 +148,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
     setShowBankSelectionModal(false);
     setShowScheduleModal(true);
   };
+
   const scheduleDonation = async (bloodBankId) => {
     try {
       const user = auth.currentUser;
@@ -131,14 +156,14 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
         setError('Please sign in to schedule a donation');
         return;
       }
-  
+
       const appointmentDate = new Date(); // Replace with user-selected date from UI
       const response = await axios.post(`${import.meta.env.VITE_BACKEND_URL}/schedule-donation`, {
         bloodBankId,
         userId: user.uid,
-        appointmentDate: appointmentDate.toISOString()
+        appointmentDate: appointmentDate.toISOString(),
       });
-  
+
       if (response.data.success) {
         alert('Appointment scheduled successfully!');
       } else {
@@ -149,6 +174,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
       setError('There was an error scheduling your appointment. Please try again.');
     }
   };
+
   const handleSubmitAppointment = async () => {
     if (!selectedBank || !appointmentDate || !appointmentTime) return;
 
@@ -162,7 +188,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
         time: appointmentTime,
         status: 'scheduled',
         createdAt: serverTimestamp(),
-        location: selectedBank.location
+        location: selectedBank.location,
       });
 
       const userRef = doc(db, 'users', currentUser.uid);
@@ -176,7 +202,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
           date: appointmentDate,
           time: appointmentTime,
           status: 'scheduled',
-          location: selectedBank.location
+          location: selectedBank.location,
         });
         await updateDoc(userRef, { appointments });
       }
@@ -187,7 +213,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
         bankName: selectedBank.name,
         date: appointmentDate,
         time: appointmentTime,
-        location: selectedBank.location
+        location: selectedBank.location,
       }]);
 
       setModalHeading('Appointment Scheduled Successfully!');
@@ -230,11 +256,11 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
     try {
       const response = await axios.post(`${import.meta.env.VITE_BACKEND_URL}/api/send-otp`, {
         mobileNumber,
-        driveId: selectedDrive.id
+        driveId: selectedDrive.id,
       }, {
         headers: {
-          Authorization: `Bearer ${import.meta.env.VITE_AUTH_TOKEN}`
-        }
+          Authorization: `Bearer ${import.meta.env.VITE_AUTH_TOKEN}`,
+        },
       });
 
       if (response.data.success) {
@@ -265,11 +291,11 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
       const response = await axios.post(`${import.meta.env.VITE_BACKEND_URL}/api/verify-otp`, {
         mobileNumber,
         otp,
-        driveId: selectedDrive.id
+        driveId: selectedDrive.id,
       }, {
         headers: {
-          Authorization: `Bearer ${import.meta.env.VITE_AUTH_TOKEN}`
-        }
+          Authorization: `Bearer ${import.meta.env.VITE_AUTH_TOKEN}`,
+        },
       });
 
       if (response.data.success) {
@@ -307,7 +333,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
         date: drive.startDate.split('T')[0],
         time: drive.time,
         location: drive.location,
-        registeredAt: serverTimestamp()
+        registeredAt: serverTimestamp(),
       });
 
       await updateDoc(driveRef, { registered: increment(1) });
@@ -322,7 +348,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
           organizer: drive.organization,
           date: drive.startDate.split('T')[0],
           time: drive.time,
-          location: drive.location
+          location: drive.location,
         });
         await updateDoc(userRef, { registeredDrives: drives });
       }
@@ -334,7 +360,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
         driveName: drive.title,
         date: drive.startDate.split('T')[0],
         time: drive.time,
-        location: drive.location
+        location: drive.location,
       }]);
       setModalHeading('Registration Successful!');
       setModalMessage(`Successfully registered for ${drive.title} on ${drive.startDate.split('T')[0]}`);
@@ -366,8 +392,8 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
           organizer: drive.organization,
           date: drive.startDate.split('T')[0],
           time: drive.time,
-          location: drive.location
-        })
+          location: drive.location,
+        }),
       });
 
       setRegisteredDrives(prev => prev.filter(id => id !== drive.id));
@@ -468,7 +494,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
                     <MapPin size={14} className="mr-1" /> {bank.location} ({bank.distance.toFixed(1)} km)
                   </div>
                   <div className="text-sm text-gray-500 mb-1">
-                    <Phone size={14} className="mr-1 inline" /> {bank.contact || 'Not available'}
+                    <Phone size={14} className="mr-1 inline" /> {bank.contactPhone || 'Not available'}
                   </div>
                   <div className="text-sm text-gray-500 mb-1">
                     Email: {bank.email || 'Not available'}
@@ -505,7 +531,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
                     >
                       Schedule Visit
                     </button>
-                    <a href={`tel:${bank.contact || '1234567890'}`} className="bg-gray-100 hover:bg-gray-200 p-2 rounded-lg transition-colors">
+                    <a href={`tel:${bank.contactPhone || '1234567890'}`} className="bg-gray-100 hover:bg-gray-200 p-2 rounded-lg transition-colors">
                       <Phone size={16} />
                     </a>
                     <a href={`https://www.google.com/maps/search/?api=1&query=${bank.coordinates.latitude},${bank.coordinates.longitude}`} target="_blank" rel="noopener noreferrer" className="bg-gray-100 hover:bg-gray-200 p-2 rounded-lg transition-colors">
