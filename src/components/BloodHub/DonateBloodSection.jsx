@@ -5,6 +5,7 @@ import { db, auth } from '../utils/firebase';
 import { calculateDistance } from '../utils/geolocation';
 import SuccessModal from './SuccessModal';
 import axios from 'axios';
+import { Link } from 'react-router-dom'; // For navigation to the new page
 
 export default function DonateBloodSection({ setActiveSection, userProfile, setShowAuthModal, setAuthMode, setDonations }) {
   const [bloodBanks, setBloodBanks] = useState([]);
@@ -60,10 +61,11 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
             ...data,
             coordinates,
             distance,
-            location: data.address || 'Hyderabad, Telangana',
-            availability: parseAvailability(data.availability), // Parse availability string
+            location: data.address || 'Hyderabad, Telangana', // Full address for navigation
+            displayLocation: `Hyderabad, Telangana (${distance.toFixed(1)} km)`, // Simplified display
+            availability: parseAvailability(data.availability),
           };
-        }).filter(bank => bank.distance <= 100);
+        }).filter(bank => bank.distance <= 100).sort((a, b) => a.distance - b.distance); // Sort by distance
         setBloodBanks(banks);
         setLoading(false);
       }, (error) => {
@@ -119,7 +121,6 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
     }
   }, [userLocation, auth.currentUser]);
 
-  // Parse availability string (e.g., "A+Ve:9, O+Ve:16, B+Ve:4, O-") into an object
   const parseAvailability = (availabilityString) => {
     if (!availabilityString || availabilityString.includes('Not Available')) return {};
     const entries = availabilityString.split(',').map(item => {
@@ -486,61 +487,73 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
               <p className="text-gray-500">No blood banks found nearby.</p>
             </div>
           ) : (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {bloodBanks.map((bank) => (
-                <div key={bank.id} className="bg-white p-4 rounded-xl shadow-sm">
-                  <h4 className="font-medium mb-1">{bank.name}</h4>
-                  <div className="flex items-center text-sm text-gray-500 mb-1">
-                    <MapPin size={14} className="mr-1" /> {bank.location} ({bank.distance.toFixed(1)} km)
-                  </div>
-                  <div className="text-sm text-gray-500 mb-1">
-                    <Phone size={14} className="mr-1 inline" /> {bank.contactPhone || 'Not available'}
-                  </div>
-                  <div className="text-sm text-gray-500 mb-1">
-                    Email: {bank.email || 'Not available'}
-                  </div>
-                  <div className="text-sm text-gray-500 mb-1">
-                    Category: {bank.category}
-                  </div>
-                  <div className="text-sm text-gray-500 mb-1">
-                    Type: {bank.type}
-                  </div>
+            <>
+              <div className="grid md:grid-cols-3 gap-4">
+                {bloodBanks.slice(0, 3).map((bank) => (
+                  <div key={bank.id} className="bg-white p-4 rounded-xl shadow-sm">
+                    <h4 className="font-medium mb-1">{bank.name}</h4>
+                    <div className="flex items-center text-sm text-gray-500 mb-1">
+                      <MapPin size={14} className="mr-1" /> {bank.displayLocation}
+                    </div>
+                    <div className="text-sm text-gray-500 mb-1">
+                      <Phone size={14} className="mr-1 inline" /> {bank.contactPhone || 'Not available'}
+                    </div>
+                    <div className="text-sm text-gray-500 mb-1">
+                      Email: {bank.email || 'Not available'}
+                    </div>
+                    <div className="text-sm text-gray-500 mb-1">
+                      Category: {bank.category}
+                    </div>
+                    <div className="text-sm text-gray-500 mb-1">
+                      Type: {bank.type}
+                    </div>
 
-                  <div className="mb-3">
-                    <div className="text-sm font-medium mb-2">Blood Availability:</div>
-                    <div className="grid grid-cols-4 gap-2">
-                      {Object.entries(bank.availability || {}).map(([type, count]) => (
-                        <div key={type} className="text-center">
-                          <div
-                            className={`text-sm font-bold rounded-full w-8 h-8 mx-auto flex items-center justify-center ${
-                              count < 5 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
-                            }`}
-                          >
-                            {type}
+                    <div className="mb-3">
+                      <div className="text-sm font-medium mb-2">Blood Availability:</div>
+                      <div className="grid grid-cols-4 gap-2">
+                        {Object.entries(bank.availability || {}).map(([type, count]) => (
+                          <div key={type} className="text-center">
+                            <div
+                              className={`text-sm font-bold rounded-full w-8 h-8 mx-auto flex items-center justify-center ${
+                                count < 5 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
+                              }`}
+                            >
+                              {type}
+                            </div>
+                            <div className="text-xs mt-1">{count} units</div>
                           </div>
-                          <div className="text-xs mt-1">{count} units</div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button 
+                        className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg text-sm font-medium transition-colors"
+                        onClick={() => handleScheduleVisit(bank)}
+                      >
+                        Schedule Visit
+                      </button>
+                      <a href={`tel:${bank.contactPhone || '1234567890'}`} className="bg-gray-100 hover:bg-gray-200 p-2 rounded-lg transition-colors">
+                        <Phone size={16} />
+                      </a>
+                      <a href={`https://www.google.com/maps/search/?api=1&query=${bank.coordinates.latitude},${bank.coordinates.longitude}`} target="_blank" rel="noopener noreferrer" className="bg-gray-100 hover:bg-gray-200 p-2 rounded-lg transition-colors">
+                        <MapPin size={16} />
+                      </a>
                     </div>
                   </div>
-
-                  <div className="flex gap-2">
-                    <button 
-                      className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg text-sm font-medium transition-colors"
-                      onClick={() => handleScheduleVisit(bank)}
-                    >
-                      Schedule Visit
-                    </button>
-                    <a href={`tel:${bank.contactPhone || '1234567890'}`} className="bg-gray-100 hover:bg-gray-200 p-2 rounded-lg transition-colors">
-                      <Phone size={16} />
-                    </a>
-                    <a href={`https://www.google.com/maps/search/?api=1&query=${bank.coordinates.latitude},${bank.coordinates.longitude}`} target="_blank" rel="noopener noreferrer" className="bg-gray-100 hover:bg-gray-200 p-2 rounded-lg transition-colors">
-                      <MapPin size={16} />
-                    </a>
-                  </div>
+                ))}
+              </div>
+              {bloodBanks.length > 3 && (
+                <div className="flex justify-end mt-4">
+                  <Link
+                    to="/all-blood-banks"
+                    className="text-red-600 font-medium flex items-center hover:text-red-800 transition-colors"
+                  >
+                    View More Banks
+                  </Link>
                 </div>
-              ))}
-            </div>
+              )}
+            </>
           )}
         </div>
 
@@ -705,7 +718,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
                   className="w-full text-left p-2 hover:bg-gray-100 rounded-lg mb-2"
                   onClick={() => handleSelectBank(bank)}
                 >
-                  {bank.name} - {bank.location} ({bank.distance.toFixed(1)} km)
+                  {bank.name} - {bank.displayLocation}
                 </button>
               ))}
             </div>

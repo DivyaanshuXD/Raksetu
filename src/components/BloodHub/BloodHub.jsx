@@ -22,6 +22,7 @@ import RequestSuccessModal from './RequestSuccessModal';
 import CTASection from './CTASection';
 import ErrorBoundary from './ErrorBoundary';
 import ProfileSection from './ProfileSection';
+import AllBloodBanks from './AllBloodBanks'; // Add the new component
 
 const bloodTypes = ['All', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
@@ -66,7 +67,6 @@ export default function BloodHub() {
             });
 
             if (profileData.bloodType) {
-              // Subscribe to blood type notifications
               try {
                 const token = await getToken(messaging, { vapidKey: import.meta.env.VITE_VAPID_KEY });
                 fetch('https://iid.googleapis.com/iid/v1:batchAdd', {
@@ -82,7 +82,6 @@ export default function BloodHub() {
               }
             }
           } else {
-            // Create user document if it doesn't exist
             const userData = {
               name: user.displayName || 'User',
               email: user.email,
@@ -99,7 +98,6 @@ export default function BloodHub() {
             });
           }
 
-          // Listen to appointments
           const appointmentsQuery = query(
             collection(db, 'appointments'),
             where('userId', '==', user.uid)
@@ -118,7 +116,6 @@ export default function BloodHub() {
             console.log('Fetched Appointments:', appointmentsList);
           }, (error) => console.error('Error fetching appointments:', error));
 
-          // Listen to userDrives
           const userDrivesQuery = query(
             collection(db, 'userDrives'),
             where('userId', '==', user.uid)
@@ -134,7 +131,6 @@ export default function BloodHub() {
             console.log('Fetched User Drives:', drivesList);
           }, (error) => console.error('Error fetching user drives:', error));
 
-          // Update local storage user status
           localStorage.setItem('isLoggedIn', 'true');
           localStorage.setItem('userId', user.uid);
 
@@ -148,12 +144,10 @@ export default function BloodHub() {
           setIsUserProfileLoading(false);
         }
       } else {
-        // User is signed out
         setIsLoggedIn(false);
         setUserProfile(null);
         setDonations([]);
         
-        // Clear local storage
         localStorage.removeItem('isLoggedIn');
         localStorage.removeItem('userId');
         setIsUserProfileLoading(false);
@@ -163,7 +157,6 @@ export default function BloodHub() {
     return () => unsubscribe();
   }, []);
 
-  // Check local storage on initial load
   useEffect(() => {
     const storedLoggedIn = localStorage.getItem('isLoggedIn') === 'true';
     if (storedLoggedIn) {
@@ -171,7 +164,6 @@ export default function BloodHub() {
     }
   }, []);
 
-  // Get user location and fetch nearby blood banks
   useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -181,7 +173,6 @@ export default function BloodHub() {
           fetchNearbyBloodBanks(latitude, longitude);
         },
         () => {
-          // Default to Delhi if location permission denied
           setUserLocation({ lat: 28.6139, lng: 77.2090 });
           fetchNearbyBloodBanks(28.6139, 77.2090);
         }
@@ -192,7 +183,6 @@ export default function BloodHub() {
     }
   }, []);
 
-  // Fetch nearby blood banks
   const fetchNearbyBloodBanks = async (lat, lng) => {
     try {
       const bloodBanksSnapshot = await getDocs(collection(db, 'bloodBanks'));
@@ -203,7 +193,6 @@ export default function BloodHub() {
         return { id: doc.id, ...data, coordinates, distance };
       });
 
-      // Sort by distance and filter (e.g., within 100 km)
       const nearby = bloodBanksList
         .filter(bank => bank.distance <= 100)
         .sort((a, b) => a.distance - b.distance);
@@ -216,7 +205,6 @@ export default function BloodHub() {
     }
   };
 
-  // Emergency requests listener
   useEffect(() => {
     const emergencyQuery = query(
       collection(db, 'emergencyRequests'),
@@ -253,7 +241,6 @@ export default function BloodHub() {
     return () => unsubscribe();
   }, []);
 
-  // Fetch blood drives from Firestore
   useEffect(() => {
     const fetchBloodDrives = async () => {
       try {
@@ -290,12 +277,10 @@ export default function BloodHub() {
     };
 
     fetchBloodDrives();
-    // Refresh blood drives every 15 minutes
     const interval = setInterval(fetchBloodDrives, 900000);
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch app statistics from Firestore
   useEffect(() => {
     const fetchStatistics = async () => {
       try {
@@ -396,6 +381,8 @@ export default function BloodHub() {
             bloodDrives={bloodDrives}
             bloodBanks={bloodBanks}
             isLoggedIn={isLoggedIn}
+            setDonations={setDonations}
+            donations={donations}
           />
         )}
         {activeSection === 'track' && (
@@ -409,6 +396,12 @@ export default function BloodHub() {
           />
         )}
         {activeSection === 'about' && <AboutSection />}
+        {activeSection === 'all-blood-banks' && (
+          <AllBloodBanks
+            userLocation={userLocation}
+            setActiveSection={setActiveSection}
+          />
+        )}
       </main>
       <Footer />
       <AuthModal
