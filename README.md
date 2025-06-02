@@ -1,12 +1,18 @@
-# React + Vite
+Raksetu - Blood Donation Platform
+Raksetu is a web-based platform designed to streamline blood donation processes by connecting donors, recipients, and healthcare professionals in real-time. It addresses critical challenges in blood donation, such as emergency blood requests, donor eligibility tracking, and hospital coordination, through an intuitive and responsive interface.
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Features
+Real-Time Emergency Alerts: Hospitals can post urgent blood requests, which are prioritized based on urgency (e.g., Critical, High) and matched with nearby eligible donors.
+Automated Donor Matching: Matches donors to emergency requests based on blood type compatibility, location proximity, and donation eligibility (e.g., 56-day rule).
+Donation Tracking: Allows donors to track their donation history, check eligibility, and earn impact points for contributions.
+Interactive Map: Displays emergency blood requests on a map with real-time updates, helping donors locate nearby hospitals.
+Testimonials Section: Users can share and view stories about their experiences with Raksetu, fostering community engagement.
+User Authentication: Secure login and profile management using Firebase Authentication.
+Responsive Design: Fully responsive UI for seamless use on desktop and mobile devices.
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript and enable type-aware lint rules. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Tech Stack
+Frontend: React.js, Tailwind CSS
+Backend: Firebase 
+Map Integration: React Leaflet 
+Icons: Lucide React
+Deployment: Vercel 
