@@ -28,7 +28,7 @@ import {
   Send,
   X
 } from 'lucide-react';
-import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { doc, updateDoc, deleteDoc, setDoc, collection, query, where, onSnapshot, orderBy, getDocs } from 'firebase/firestore';
 import { db } from '../utils/firebase';
 
 const bloodTypes = ['All', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
@@ -53,6 +53,7 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
   const [showChat, setShowChat] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
+  const [chatId, setChatId] = useState(null);
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -187,18 +188,15 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
       if (selectedEmergency && selectedEmergency.id) {
         const newDonorsResponded = (selectedEmergency.donorsResponded || 0) + 1;
         
-        // Update the emergency request with new donor count
         await updateDoc(doc(db, 'emergencyRequests', selectedEmergency.id), {
           donorsResponded: newDonorsResponded,
           donorResponseTime: new Date().toISOString(),
         });
 
-        // If donorsResponded matches units needed, remove the request
         if (newDonorsResponded >= (selectedEmergency.units || 1)) {
           await deleteDoc(doc(db, 'emergencyRequests', selectedEmergency.id));
         }
 
-        // Send SMS notification to registered phone number
         if (userProfile?.phoneNumber) {
           await fetch('https://raksetu-backend.vercel.app/send-sms', {
             method: 'POST',
@@ -210,7 +208,6 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
           });
         }
 
-        // Notify parent component about the confirmed donation
         if (onDonationConfirmed) {
           onDonationConfirmed({
             id: selectedEmergency.id,
@@ -240,21 +237,105 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
     setCurrentView('emergency-list');
     setNewEmergencyNotification(null);
     setShowChat(false);
+    setChatId(null);
+    setChatMessages([]);
   }, []);
 
-  const handleSendMessage = useCallback(() => {
-    if (!chatInput.trim()) return;
-    setChatMessages([...chatMessages, { text: chatInput, sender: 'user', timestamp: new Date() }]);
-    setChatInput('');
-    // Simulate hospital response (in a real app, this would be a backend API call)
-    setTimeout(() => {
-      setChatMessages(prev => [...prev, { 
-        text: "Thank you for reaching out! A representative will assist you shortly.", 
-        sender: 'hospital', 
-        timestamp: new Date() 
-      }]);
-    }, 1000);
-  }, [chatInput, chatMessages]);
+  const initializeChat = useCallback(async () => {
+    console.log("Initializing chat...");
+    if (!userProfile || !selectedEmergency) {
+      console.log("Missing userProfile or selectedEmergency:", { userProfile, selectedEmergency });
+      return;
+    }
+
+    try {
+      console.log("Authenticated user ID:", userProfile?.id);
+      const chatsQuery = query(
+        collection(db, 'chats'),
+        where('emergencyId', '==', selectedEmergency.id),
+        where('participants', 'array-contains', userProfile.id)
+      );
+      const chatSnapshot = await getDocs(chatsQuery);
+      console.log("Chat snapshot:", chatSnapshot.empty ? "No existing chat" : chatSnapshot.docs[0].id);
+
+      let chatDocId;
+      if (!chatSnapshot.empty) {
+        chatDocId = chatSnapshot.docs[0].id;
+      } else {
+        const newChatRef = doc(collection(db, 'chats'));
+        chatDocId = newChatRef.id;
+        console.log("Creating new chat with participants:", [userProfile.id, selectedEmergency.contactId || 'hospital']);
+        await setDoc(newChatRef, {
+          emergencyId: selectedEmergency.id,
+          participants: [userProfile.id, selectedEmergency.contactId || 'hospital'],
+          createdAt: new Date().toISOString(),
+          lastMessageAt: new Date().toISOString(),
+        });
+      }
+
+      setChatId(chatDocId);
+      console.log("Chat ID set to:", chatDocId);
+
+      const messagesQuery = query(
+        collection(db, 'chats', chatDocId, 'messages'),
+        orderBy('timestamp', 'asc')
+      );
+      console.log("Listening to messages at:", messagesQuery.path);
+      const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
+        console.log("Messages snapshot:", snapshot.docs.length, "messages found");
+        const messages = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+        setChatMessages(messages);
+        console.log("Updated chat messages:", messages);
+      }, (error) => {
+        console.error('Error listening to chat messages:', error);
+        setError('Failed to load chat messages. Please try again.');
+      });
+
+      return () => unsubscribe();
+    } catch (error) {
+      console.error('Error initializing chat:', error);
+      setError('Failed to initialize chat. Please try again.');
+    }
+  }, [userProfile, selectedEmergency]);
+
+  useEffect(() => {
+    console.log("showChat state:", showChat, "chatId:", chatId);
+    if (showChat && !chatId) {
+      initializeChat();
+    }
+  }, [showChat, chatId, initializeChat]);
+
+  const handleSendMessage = useCallback(async () => {
+    console.log("Sending message:", chatInput);
+    if (!chatInput.trim() || !chatId || !userProfile) {
+      console.log("Cannot send message. Missing data:", { chatInput, chatId, userProfile });
+      return;
+    }
+
+    try {
+      const messageRef = doc(collection(db, 'chats', chatId, 'messages'));
+      console.log("Saving message to:", messageRef.path);
+      await setDoc(messageRef, {
+        text: chatInput,
+        senderId: userProfile.id,
+        senderName: userProfile.name || 'User',
+        timestamp: new Date().toISOString(),
+      });
+
+      await updateDoc(doc(db, 'chats', chatId), {
+        lastMessageAt: new Date().toISOString(),
+      });
+
+      setChatInput('');
+      console.log("Message sent successfully");
+    } catch (error) {
+      console.error('Error sending message:', error);
+      setError('Failed to send message. Please try again.');
+    }
+  }, [chatInput, chatId, userProfile]);
 
   const LoadingPulse = () => (
     <div className="flex flex-col items-center justify-center py-10">
@@ -507,8 +588,8 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
                     bloodTypeFilter === type ? 'bg-red-50 text-red-600' : ''
                   }`}
                   onClick={() => {
-                    setBloodTypeFilter(type); // Fixed: Properly set the filter
-                    setShowBloodTypeDropdown(false); // Close dropdown after selection
+                    setBloodTypeFilter(type);
+                    setShowBloodTypeDropdown(false);
                   }}
                   role="option"
                   aria-selected={bloodTypeFilter === type}
@@ -770,7 +851,10 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
                   <div className="flex gap-2">
                     <button
                       className="bg-gray-100 hover:bg-gray-200 p-3 rounded-xl transition-colors"
-                      onClick={() => setShowChat(true)}
+                      onClick={() => {
+                        console.log("Opening chat...");
+                        setShowChat(true);
+                      }}
                       aria-label="Message"
                     >
                       <MessageCircle size={18} className="text-gray-600" />
@@ -1069,16 +1153,20 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
           </button>
         </div>
         <div className="flex-1 p-4 overflow-y-auto">
-          {chatMessages.map((msg, index) => (
-            <div key={index} className={`mb-2 ${msg.sender === 'user' ? 'text-right' : 'text-left'}`}>
-              <span className={`inline-block p-2 rounded-lg ${msg.sender === 'user' ? 'bg-blue-200' : 'bg-gray-200'}`}>
-                {msg.text}
-              </span>
-              <div className="text-xs text-gray-500 mt-1">
-                {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {chatMessages.length === 0 ? (
+            <div className="text-center text-gray-500">Start the conversation...</div>
+          ) : (
+            chatMessages.map((msg, index) => (
+              <div key={msg.id || index} className={`mb-2 ${msg.senderId === userProfile?.id ? 'text-right' : 'text-left'}`}>
+                <span className={`inline-block p-2 rounded-lg ${msg.senderId === userProfile?.id ? 'bg-blue-200' : 'bg-gray-200'}`}>
+                  {msg.text}
+                </span>
+                <div className="text-xs text-gray-500 mt-1">
+                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
         <div className="p-2 border-t flex">
           <input

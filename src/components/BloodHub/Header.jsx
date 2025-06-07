@@ -182,8 +182,22 @@ export default function Header({
                   onClick={() => setShowProfileMenu(!showProfileMenu)}
                   className="flex items-center space-x-2 group"
                 >
-                  <div className="h-9 w-9 bg-red-100 rounded-full flex items-center justify-center text-red-600 font-medium text-sm ring-2 ring-red-100 group-hover:ring-red-200 transition-all">
-                    {userProfile?.name ? userProfile.name.charAt(0).toUpperCase() : 'U'}
+                  <div className="h-9 w-9 rounded-full flex items-center justify-center text-red-600 font-medium text-sm ring-2 ring-red-100 group-hover:ring-red-200 transition-all">
+                    {userProfile?.photoURL ? (
+                      <img 
+                        src={userProfile.photoURL} 
+                        alt="Profile" 
+                        className="h-full w-full rounded-full object-cover" 
+                        onError={(e) => {
+                          console.error('Error loading header profile image:', e.id);
+                          e.target.src = 'https://via.placeholder.com/40x40'; // Fallback image
+                        }}
+                      />
+                    ) : (
+                      <div className="h-full w-full bg-red-100 rounded-full flex items-center justify-center">
+                        {userProfile?.name ? userProfile.name.charAt(0).toUpperCase() : 'U'}
+                      </div>
+                    )}
                   </div>
                   <span className="text-sm font-medium text-gray-700 group-hover:text-red-600 flex items-center">
                     {userProfile?.name || 'User'}
@@ -194,8 +208,29 @@ export default function Header({
                 {showProfileMenu && (
                   <div className="absolute right-0 mt-2 w-56 bg-white border rounded-lg shadow-xl z-50 overflow-hidden">
                     <div className="p-4 border-b bg-gradient-to-r from-red-50 to-white">
-                      <p className="text-sm font-semibold text-gray-800">{userProfile?.name || 'User'}</p>
-                      <p className="text-xs text-gray-500 truncate">{userProfile?.email || 'user@example.com'}</p>
+                      <div className="flex items-center space-x-3">
+                        <div className="h-10 w-10 rounded-full">
+                          {userProfile?.photoURL ? (
+                            <img 
+                              src={userProfile.photoURL} 
+                              alt="Profile" 
+                              className="h-full w-full rounded-full object-cover" 
+                              onError={(e) => {
+                                console.error('Error loading dropdown profile image:', e.id);
+                                e.target.src = 'https://via.placeholder.com/40x40';
+                              }}
+                            />
+                          ) : (
+                            <div className="h-full w-full bg-red-100 rounded-full flex items-center justify-center text-red-600 font-medium text-sm">
+                              {userProfile?.name ? userProfile.name.charAt(0).toUpperCase() : 'U'}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-gray-800">{userProfile?.name || 'User'}</p>
+                          <p className="text-xs text-gray-500 truncate">{userProfile?.email || 'user@example.com'}</p>
+                        </div>
+                      </div>
                     </div>
                     <div className="py-1">
                       <button 
@@ -262,7 +297,6 @@ export default function Header({
         </div>
       </div>
 
-      {/* Mobile Menu */}
       {isMenuOpen && (
         <div className="md:hidden bg-white border-t border-gray-100 shadow-lg animate-fadeIn">
           <div className="container mx-auto px-4 py-3 flex flex-col">
@@ -305,8 +339,22 @@ export default function Header({
             {isLoggedIn ? (
               <div className="border-t border-gray-100 mt-3 pt-3">
                 <div className="flex items-center px-2 py-3 mb-2 bg-red-50 rounded-lg">
-                  <div className="h-10 w-10 bg-red-100 rounded-full flex items-center justify-center text-red-600 font-medium text-sm mr-3 ring-2 ring-red-200">
-                    {userProfile?.name ? userProfile.name.charAt(0).toUpperCase() : 'U'}
+                  <div className="h-10 w-10 rounded-full flex items-center justify-center text-red-600 font-medium text-sm mr-3 ring-2 ring-red-200">
+                    {userProfile?.photoURL ? (
+                      <img 
+                        src={userProfile.photoURL} 
+                        alt="Profile" 
+                        className="h-full w-full rounded-full object-cover" 
+                        onError={(e) => {
+                          console.error('Error loading mobile menu profile image:', e.id);
+                          e.target.src = 'https://via.placeholder.com/40x40';
+                        }}
+                      />
+                    ) : (
+                      <div className="h-full w-full bg-red-100 rounded-full flex items-center justify-center">
+                        {userProfile?.name ? userProfile.name.charAt(0).toUpperCase() : 'U'}
+                      </div>
+                    )}
                   </div>
                   <div>
                     <p className="text-sm font-medium text-gray-800">{userProfile?.name || 'User'}</p>

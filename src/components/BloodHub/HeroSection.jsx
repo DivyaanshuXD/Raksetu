@@ -6,7 +6,6 @@ export default function HeroSection({ setActiveSection, setShowEmergencyModal, e
     <section className="relative pt-8 md:pt-16 pb-12 md:pb-24 overflow-hidden min-h-screen flex items-center">
       {/* Video Background with Overlay */}
       <div className="absolute inset-0 z-0">
-        <div className="absolute inset-0 bg-gradient-to-r from-red-900/80 to-black/70 z-10"></div>
         <video
           autoPlay
           muted

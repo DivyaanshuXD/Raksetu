@@ -22,7 +22,8 @@ import RequestSuccessModal from './RequestSuccessModal';
 import CTASection from './CTASection';
 import ErrorBoundary from './ErrorBoundary';
 import ProfileSection from './ProfileSection';
-import AllBloodBanks from './AllBloodBanks'; // Add the new component
+import AllBloodBanks from './AllBloodBanks';
+import Settings from './Settings';
 
 const bloodTypes = ['All', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
@@ -48,24 +49,67 @@ export default function BloodHub() {
   });
   const [isUserProfileLoading, setIsUserProfileLoading] = useState(true);
 
-  // Auth state listener with FCM subscription and donations listener
+  // Auth state listener with FCM subscription, donations listener, and real-time user profile updates
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       setIsUserProfileLoading(true);
       if (user) {
         setIsLoggedIn(true);
         try {
-          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          const userDocRef = doc(db, 'users', user.uid);
           
+          // Set up real-time listener for user profile
+          const unsubscribeProfile = onSnapshot(userDocRef, (doc) => {
+            if (doc.exists()) {
+              const profileData = doc.data();
+              const updatedProfile = {
+                id: user.uid,
+                name: profileData.name || user.displayName || 'User',
+                email: profileData.email || user.email || 'user@example.com',
+                phone: profileData.phone || user.phoneNumber || '',
+                photoURL: profileData.photoURL || user.photoURL || '', // Ensure photoURL is always defined
+                bloodType: profileData.bloodType || '',
+                dob: profileData.dob || '',
+                lastDonated: profileData.lastDonated || '',
+                address: profileData.address || '',
+                city: profileData.city || '',
+                createdAt: profileData.createdAt || new Date().toISOString(),
+                updatedAt: profileData.updatedAt || new Date().toISOString()
+              };
+              setUserProfile(updatedProfile);
+              console.log('Real-time user profile updated:', updatedProfile);
+            } else {
+              // If user document doesn't exist, create it
+              const userData = {
+                name: user.displayName || 'User',
+                email: user.email,
+                bloodType: '',
+                phone: user.phoneNumber || '',
+                photoURL: user.photoURL || '',
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+              };
+              
+              setDoc(userDocRef, userData).then(() => {
+                const newProfile = {
+                  id: user.uid,
+                  ...userData
+                };
+                setUserProfile(newProfile);
+                console.log('New user profile created:', newProfile);
+              }).catch(error => {
+                console.error('Error creating user profile:', error);
+              });
+            }
+          }, (error) => {
+            console.error('Error listening to user profile:', error);
+            setUserProfile(null);
+          });
+
+          // FCM subscription for blood type notifications
+          const userDoc = await getDoc(userDocRef);
           if (userDoc.exists()) {
             const profileData = userDoc.data();
-            setUserProfile({
-              ...profileData,
-              name: profileData.name || user.displayName || 'User',
-              email: profileData.email || user.email || 'user@example.com',
-              id: user.uid
-            });
-
             if (profileData.bloodType) {
               try {
                 const token = await getToken(messaging, { vapidKey: import.meta.env.VITE_VAPID_KEY });
@@ -81,23 +125,9 @@ export default function BloodHub() {
                 console.warn('FCM subscription failed:', fcmError);
               }
             }
-          } else {
-            const userData = {
-              name: user.displayName || 'User',
-              email: user.email,
-              bloodType: '',
-              phone: user.phoneNumber || '',
-              photoURL: user.photoURL || '',
-              createdAt: new Date().toISOString()
-            };
-            
-            await setDoc(doc(db, 'users', user.uid), userData);
-            setUserProfile({
-              ...userData,
-              id: user.uid
-            });
           }
 
+          // Listen to user appointments
           const appointmentsQuery = query(
             collection(db, 'appointments'),
             where('userId', '==', user.uid)
@@ -116,6 +146,7 @@ export default function BloodHub() {
             console.log('Fetched Appointments:', appointmentsList);
           }, (error) => console.error('Error fetching appointments:', error));
 
+          // Listen to user drives
           const userDrivesQuery = query(
             collection(db, 'userDrives'),
             where('userId', '==', user.uid)
@@ -134,12 +165,15 @@ export default function BloodHub() {
           localStorage.setItem('isLoggedIn', 'true');
           localStorage.setItem('userId', user.uid);
 
+          // Cleanup listeners
           return () => {
+            unsubscribeProfile();
             appointmentsUnsubscribe();
             userDrivesUnsubscribe();
           };
         } catch (error) {
           console.error("Error loading user profile:", error);
+          setUserProfile(null);
         } finally {
           setIsUserProfileLoading(false);
         }
@@ -154,7 +188,7 @@ export default function BloodHub() {
       }
     });
 
-    return () => unsubscribe();
+    return () => unsubscribeAuth();
   }, []);
 
   useEffect(() => {
@@ -343,7 +377,12 @@ export default function BloodHub() {
               />
             </ErrorBoundary>
             <StatsSection stats={stats} />
-            <TestimonialsSection />
+            <TestimonialsSection 
+              userProfile={userProfile}
+              isLoggedIn={isLoggedIn}
+              setShowAuthModal={setShowAuthModal}
+              setAuthMode={setAuthMode}
+            />
             <CTASection
               setActiveSection={setActiveSection}
               setShowAuthModal={setShowAuthModal}
@@ -356,6 +395,7 @@ export default function BloodHub() {
           <ErrorBoundary>
             <ProfileSection 
               userProfile={userProfile} 
+              setUserProfile={setUserProfile} // Pass setUserProfile to update parent state
               isLoading={isUserProfileLoading}
             />
           </ErrorBoundary>
@@ -402,8 +442,19 @@ export default function BloodHub() {
             setActiveSection={setActiveSection}
           />
         )}
+        {activeSection === 'settings' && ( // Add Settings section
+          <ErrorBoundary>
+            <Settings
+              userProfile={userProfile}
+              setUserProfile={setUserProfile}
+              isLoggedIn={isLoggedIn}
+              setShowAuthModal={setShowAuthModal}
+              setAuthMode={setAuthMode}
+            />
+          </ErrorBoundary>
+        )}
       </main>
-      <Footer />
+      <Footer setActiveSection={setActiveSection} /> {/* Pass setActiveSection to Footer */}
       <AuthModal
         show={showAuthModal}
         setShow={setShowAuthModal}

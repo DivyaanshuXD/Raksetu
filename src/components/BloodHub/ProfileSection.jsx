@@ -7,7 +7,7 @@ import { Camera, User, Calendar, MapPin, Phone, Droplet, Clock, X } from 'lucide
 
 const bloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
-export default function ProfileSection({ userProfile }) {
+export default function ProfileSection({ userProfile, setUserProfile }) {
   const [user, setUser] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editData, setEditData] = useState({
@@ -32,14 +32,17 @@ export default function ProfileSection({ userProfile }) {
     const fetchUserProfile = async () => {
       try {
         const currentUser = auth.currentUser;
-        if (!currentUser) return;
+        if (!currentUser) {
+          console.error('No authenticated user found');
+          return;
+        }
 
         const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
         let userData = {
           name: currentUser.displayName || 'User',
-          email: currentUser.email,
+          email: currentUser.email || 'Not provided',
           phone: currentUser.phoneNumber || 'Not provided',
-          photo: currentUser.photoURL || null,
+          photoURL: currentUser.photoURL || null, // Use photoURL to match userProfile
           bloodType: '',
           dob: '',
           lastDonated: '',
@@ -53,6 +56,7 @@ export default function ProfileSection({ userProfile }) {
             ...userData,
             name: firebaseData.name || userData.name,
             phone: firebaseData.phone || userData.phone,
+            photoURL: firebaseData.photoURL || userData.photoURL,
             bloodType: firebaseData.bloodType || userData.bloodType,
             dob: firebaseData.dob || userData.dob,
             lastDonated: firebaseData.lastDonated || userData.lastDonated,
@@ -61,10 +65,11 @@ export default function ProfileSection({ userProfile }) {
           };
         }
 
+        console.log('Fetched user data:', userData);
         setUser(userData);
         setEditData(userData);
       } catch (err) {
-        console.error('Error fetching profile:', err);
+        console.error('Error fetching profile:', err.message, err.code);
       }
     };
 
@@ -105,8 +110,16 @@ export default function ProfileSection({ userProfile }) {
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
+      // Validate file size (limit to 2MB)
+      if (file.size > 2 * 1024 * 1024) {
+        setError('Image size must be less than 2MB.');
+        setImageFile(null);
+        setImagePreview(null);
+        return;
+      }
+
+      console.log('Selected file:', { name: file.name, size: file.size, type: file.type });
       setImageFile(file);
-      // Create a preview for the user to see before upload
       const reader = new FileReader();
       reader.onload = (e) => {
         setImagePreview(e.target.result);
@@ -117,25 +130,30 @@ export default function ProfileSection({ userProfile }) {
 
   const uploadImage = async () => {
     if (!imageFile) return null;
-    
+
     try {
       const currentUser = auth.currentUser;
       if (!currentUser) throw new Error("No user authenticated");
-      
-      // Create a unique filename to avoid collisions
+
       const fileName = `profile_${Date.now()}_${imageFile.name}`;
       const storageRef = ref(storage, `profileImages/${currentUser.uid}/${fileName}`);
-      
-      console.log("Uploading image to:", storageRef);
-      const snapshot = await uploadBytes(storageRef, imageFile);
-      console.log("Upload complete, getting URL");
+
+      console.log("Uploading image to:", storageRef.fullPath);
+
+      // Add a timeout to prevent hanging
+      const uploadPromise = uploadBytes(storageRef, imageFile);
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Image upload timed out after 10 seconds')), 10000);
+      });
+
+      const snapshot = await Promise.race([uploadPromise, timeoutPromise]);
       const downloadURL = await getDownloadURL(snapshot.ref);
       console.log("Image URL retrieved:", downloadURL);
-      
+
       return downloadURL;
     } catch (error) {
-      console.error("Error in uploadImage function:", error);
-      throw new Error(`Image upload failed: ${error.message}`);
+      console.error("Error in uploadImage function:", error.message, error.code);
+      throw error;
     }
   };
 
@@ -143,69 +161,66 @@ export default function ProfileSection({ userProfile }) {
     setLoading(true);
     setError('');
     setSuccess('');
-    
+
     try {
       const currentUser = auth.currentUser;
       if (!currentUser) throw new Error('No user logged in');
 
       // Upload image if one was selected
-      let photoURL = editData.photo;
-    if (imageFile) {
-      try {
+      let photoURL = editData.photoURL;
+      if (imageFile) {
         photoURL = await uploadImage();
-        console.log("Image uploaded successfully:", photoURL);
-      } catch (imageError) {
-        console.error("Image upload failed:", imageError);
-        throw new Error("Failed to upload profile image");
       }
-    }
 
-      // Update Firebase Auth profile (only name and photo)
-      try {
-        await updateProfile(currentUser, {
-          displayName: editData.name,
-          photoURL: photoURL || null,
-        });
-        console.log("Auth profile updated");
-      } catch (profileError) {
-        console.error("Auth profile update failed:", profileError);
+      // Run Firebase Auth and Firestore updates in parallel
+      const authUpdatePromise = updateProfile(currentUser, {
+        displayName: editData.name,
+        photoURL: photoURL || null,
+      }).catch(err => {
+        console.error("Auth profile update failed:", err.message, err.code);
         throw new Error("Failed to update authentication profile");
-      }
+      });
 
-      // Update Firestore document with all the user data
-      try {
-        const userDocRef = doc(db, 'users', currentUser.uid);
-        await updateDoc(userDocRef, {
-          name: editData.name,
-          phone: editData.phone,
-          photoURL: photoURL || null,
-          bloodType: editData.bloodType,
-          dob: editData.dob,
-          lastDonated: editData.lastDonated,
-          address: editData.address,
-          city: editData.city,
-          updatedAt: new Date().toISOString(),
-        });
-        console.log("Firestore profile updated");
-      } catch (firestoreError) {
-        console.error("Firestore update failed:", firestoreError);
+      const firestoreUpdatePromise = updateDoc(doc(db, 'users', currentUser.uid), {
+        name: editData.name,
+        phone: editData.phone,
+        photoURL: photoURL || null,
+        bloodType: editData.bloodType,
+        dob: editData.dob,
+        lastDonated: editData.lastDonated,
+        address: editData.address,
+        city: editData.city,
+        updatedAt: new Date().toISOString(),
+      }).catch(err => {
+        console.error("Firestore update failed:", err.message, err.code);
         throw new Error("Failed to update user data in database");
-      }
+      });
+
+      await Promise.all([authUpdatePromise, firestoreUpdatePromise]);
+      console.log("Profile updates completed");
 
       // Update local state
-      setUser({
+      const updatedUserData = {
         ...user,
         ...editData,
-        photo: photoURL || editData.photo
-      });
-      
+        photoURL: photoURL || editData.photoURL
+      };
+      setUser(updatedUserData);
+
+      // Update parent state to propagate changes to other components
+      setUserProfile(prev => ({
+        ...prev,
+        ...editData,
+        photoURL: photoURL || editData.photoURL
+      }));
+
       setSuccess('Profile updated successfully!');
       setTimeout(() => {
         setShowEditModal(false);
         setSuccess('');
       }, 1500);
     } catch (err) {
-      setError('Failed to update profile. Please try again.');
+      setError(`Failed to update profile: ${err.message}. Please try again.`);
       console.error('Error updating profile:', err);
     } finally {
       setLoading(false);
@@ -226,15 +241,14 @@ export default function ProfileSection({ userProfile }) {
     }, 300);
   };
 
-  // Calculate last donation date in human readable format
   const getLastDonationText = () => {
     if (!user.lastDonated) return 'No donations recorded';
-    
+
     const lastDate = new Date(user.lastDonated);
     const today = new Date();
     const diffTime = Math.abs(today - lastDate);
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
+
     if (diffDays < 30) return `${diffDays} days ago`;
     if (diffDays < 365) return `${Math.floor(diffDays/30)} months ago`;
     return `${Math.floor(diffDays/365)} years ago`;
@@ -246,15 +260,18 @@ export default function ProfileSection({ userProfile }) {
         <h2 className="text-3xl font-bold mb-6">Donor Profile</h2>
         
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-          {/* Profile header with avatar and basic info */}
           <div className="p-6 md:p-8 bg-gradient-to-r from-red-600 to-red-700 text-white">
             <div className="flex flex-col md:flex-row items-center md:items-start gap-4">
               <div className="relative">
-                {user.photo ? (
+                {user.photoURL ? (
                   <img 
-                    src={user.photo} 
+                    src={user.photoURL} 
                     alt="Profile" 
                     className="h-24 w-24 rounded-full border-4 border-white object-cover" 
+                    onError={(e) => {
+                      console.error('Error loading profile image:', e.id);
+                      e.target.src = 'https://via.placeholder.com/80x80';
+                    }}
                   />
                 ) : (
                   <div className="h-24 w-24 bg-white rounded-full flex items-center justify-center text-red-600 font-bold text-2xl border-4 border-white">
@@ -280,10 +297,8 @@ export default function ProfileSection({ userProfile }) {
             </div>
           </div>
           
-          {/* Profile body with detailed information */}
           <div className="p-6 md:p-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {/* Left column - Blood donation info */}
               <div>
                 <h4 className="text-lg font-semibold mb-4 text-gray-700">Blood Donation Details</h4>
                 <div className="space-y-4">
@@ -334,7 +349,6 @@ export default function ProfileSection({ userProfile }) {
                 </div>
               </div>
               
-              {/* Right column - Donation stats (placeholder for now) */}
               <div>
                 <h4 className="text-lg font-semibold mb-4 text-gray-700">Donation Statistics</h4>
                 <div className="bg-gray-50 p-6 rounded-xl">
@@ -381,7 +395,6 @@ export default function ProfileSection({ userProfile }) {
           </div>
         </div>
 
-        {/* Edit Profile Modal */}
         {showEditModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div 
@@ -413,7 +426,6 @@ export default function ProfileSection({ userProfile }) {
                 )}
 
                 <div className="space-y-6">
-                  {/* Profile Photo Upload */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Profile Photo</label>
                     <div className="flex items-center gap-4">
@@ -424,11 +436,15 @@ export default function ProfileSection({ userProfile }) {
                             alt="Profile Preview" 
                             className="h-16 w-16 rounded-full object-cover border border-gray-300" 
                           />
-                        ) : user.photo ? (
+                        ) : user.photoURL ? (
                           <img 
-                            src={user.photo} 
+                            src={user.photoURL} 
                             alt="Current Profile" 
                             className="h-16 w-16 rounded-full object-cover border border-gray-300" 
+                            onError={(e) => {
+                              console.error('Error loading modal profile image:', e.id);
+                              e.target.src = 'https://via.placeholder.com/60x60';
+                            }}
                           />
                         ) : (
                           <div className="h-16 w-16 bg-gray-200 rounded-full flex items-center justify-center text-gray-600 font-bold text-xl border border-gray-300">
@@ -447,13 +463,12 @@ export default function ProfileSection({ userProfile }) {
                           />
                         </label>
                       </div>
-                      
                       <div className="flex-1">
                         <p className="text-sm text-gray-500">Upload a new photo or use an image URL</p>
                         <input
                           type="text"
-                          name="photo"
-                          value={editData.photo || ''}
+                          name="photoURL"
+                          value={editData.photoURL || ''}
                           onChange={handleChange}
                           placeholder="Image URL (optional)"
                           className="mt-1 w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-red-500 focus:border-transparent"

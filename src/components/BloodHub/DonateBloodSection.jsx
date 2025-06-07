@@ -545,12 +545,12 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
               </div>
               {bloodBanks.length > 3 && (
                 <div className="flex justify-end mt-4">
-                  <Link
-                    to="/all-blood-banks"
-                    className="text-red-600 font-medium flex items-center hover:text-red-800 transition-colors"
-                  >
-                    View More Banks
-                  </Link>
+                 <button
+      onClick={() => setActiveSection('all-blood-banks')}
+      className="text-red-600 font-medium flex items-center hover:text-red-800 transition-colors"
+    >
+      View More Banks
+    </button>
                 </div>
               )}
             </>

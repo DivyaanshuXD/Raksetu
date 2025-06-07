@@ -1,117 +1,313 @@
-import { Heart, User, Award, Quote } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Heart, User, Award, Quote, MessageCircle, Star, Users } from 'lucide-react';
+import { db, auth } from '../utils/firebase';
+import { collection, addDoc, onSnapshot, query } from 'firebase/firestore';
 
-const testimonials = [
-  { 
-    name: 'Divyaanshu Tonk', 
-    bloodType: 'O+', 
-    message: 'Raksetu helped me find donors within minutes during my father\'s emergency surgery.', 
-    avatar: 'https://via.placeholder.com/60x60',
-    highlight: 'Emergency Response'
-  },
-  { 
-    name: 'Ajay Reddy', 
-    bloodType: 'AB-', 
-    message: 'The tracking feature let me know exactly when my donation was used. It\'s incredibly fulfilling.', 
-    avatar: 'https://via.placeholder.com/60x60',
-    highlight: 'Donation Tracking'
-  },
-  { 
-    name: 'Prajwal Upadhyay', 
-    role: 'Cardiac Surgeon', 
-    message: 'The real-time availability map has revolutionized how we handle blood requirements during surgeries.', 
-    avatar: 'https://via.placeholder.com/60x60',
-    highlight: 'Medical Professional'
-  },
-];
+export default function TestimonialsSection({ userProfile, isLoggedIn, setShowAuthModal, setAuthMode }) {
+  const [testimonials, setTestimonials] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [formData, setFormData] = useState({
+    message: '',
+    highlight: '',
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-export default function TestimonialsSection() {
+  useEffect(() => {
+    const testimonialsRef = collection(db, 'testimonials');
+    const q = query(testimonialsRef);
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const testimonialsList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      setTestimonials(testimonialsList);
+      console.log('Fetched testimonials:', testimonialsList);
+    }, (err) => {
+      console.error('Detailed error fetching testimonials:', err.message, err.code);
+      setError(`Failed to load testimonials: ${err.message} (${err.code}). Please try again.`);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!isLoggedIn) {
+      setAuthMode('login');
+      setShowAuthModal(true);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const testimonialData = {
+        name: userProfile?.name || 'Anonymous',
+        bloodType: userProfile?.bloodType || 'Not specified',
+        message: formData.message,
+        highlight: formData.highlight || 'Donor Story',
+        avatar: userProfile?.photoURL || 'https://via.placeholder.com/60x60',
+        createdAt: new Date().toISOString(),
+        userId: auth.currentUser?.uid || 'anonymous',
+      };
+
+      console.log('Submitting testimonial:', testimonialData);
+      const docRef = await addDoc(collection(db, 'testimonials'), testimonialData);
+      console.log('Testimonial added with ID:', docRef.id);
+      setFormData({ message: '', highlight: '' });
+      setShowForm(false);
+      setLoading(false);
+    } catch (err) {
+      console.error('Detailed error submitting testimonial:', err.message, err.code);
+      setError(`Failed to submit your story: ${err.message} (${err.code}). Please try again.`);
+      setLoading(false);
+    }
+  };
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
   return (
-    <section className="py-20 bg-gradient-to-br from-red-950 to-red-900 text-white relative overflow-hidden">
-      {/* Background Pattern */}
-      <div className="absolute inset-0 opacity-5">
-        <div className="absolute top-0 left-0 w-64 h-64 rounded-full bg-red-600 blur-3xl"></div>
-        <div className="absolute bottom-0 right-0 w-80 h-80 rounded-full bg-red-600 blur-3xl"></div>
+    <section className="py-24 bg-gradient-to-br from-slate-50 via-red-50 to-rose-50 relative overflow-hidden">
+      {/* Background Elements */}
+      <div className="absolute inset-0 opacity-30">
+        <div className="absolute top-10 left-10 w-72 h-72 bg-gradient-to-r from-red-200 to-pink-200 rounded-full blur-3xl animate-pulse"></div>
+        <div className="absolute bottom-10 right-10 w-96 h-96 bg-gradient-to-r from-rose-200 to-red-200 rounded-full blur-3xl animate-pulse delay-1000"></div>
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-gradient-to-r from-pink-100 to-red-100 rounded-full blur-2xl opacity-50"></div>
       </div>
       
-      <div className="container mx-auto px-4 relative z-10">
-        <div className="text-center mb-16">
-          <div className="flex justify-center mb-4">
-            <Heart className="text-red-400" size={32} fill="currentColor" />
+      <div className="container mx-auto px-6 relative z-10">
+        {/* Header Section */}
+        <div className="text-center mb-20">
+          <div className="flex justify-center mb-6">
+            <div className="relative">
+              <div className="h-16 w-16 bg-gradient-to-r from-red-500 to-rose-500 rounded-full flex items-center justify-center shadow-lg">
+                <Heart className="text-white" size={32} fill="currentColor" />
+              </div>
+              <div className="absolute -top-1 -right-1 h-6 w-6 bg-gradient-to-r from-yellow-400 to-orange-400 rounded-full flex items-center justify-center">
+                <Star size={12} className="text-white" fill="currentColor" />
+              </div>
+            </div>
           </div>
-          <h2 className="text-4xl font-bold mb-4">Blood Donation Stories</h2>
-          <div className="w-24 h-1 bg-red-500 mx-auto mb-6 rounded-full"></div>
-          <p className="text-red-100 max-w-3xl mx-auto text-lg">
-            Hear from donors, recipients, and healthcare professionals about their experiences with Raksetu
+          <h2 className="text-5xl font-bold bg-gradient-to-r from-red-600 to-rose-600 bg-clip-text text-transparent mb-6">
+            Stories That Inspire
+          </h2>
+          <div className="w-32 h-1.5 bg-gradient-to-r from-red-400 to-rose-400 mx-auto mb-8 rounded-full shadow-sm"></div>
+          <p className="text-slate-600 max-w-4xl mx-auto text-xl leading-relaxed">
+            Every drop counts, every story matters. Discover how Raksetu has touched lives through 
+            the generosity of donors and the gratitude of recipients.
           </p>
+          
+          {/* Stats Section */}
+          <div className="flex justify-center mt-12">
+            <div className="bg-white/80 backdrop-blur-sm rounded-2xl px-8 py-4 shadow-lg border border-white/20">
+              <div className="flex items-center gap-8">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-red-600">{testimonials.length}</div>
+                  <div className="text-sm text-slate-600">Stories Shared</div>
+                </div>
+                <div className="w-px h-8 bg-slate-300"></div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-red-600">4.9</div>
+                  <div className="text-sm text-slate-600">Average Rating</div>
+                </div>
+                <div className="w-px h-8 bg-slate-300"></div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-red-600">98%</div>
+                  <div className="text-sm text-slate-600">Satisfaction</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8">
-          {testimonials.map((testimonial, index) => (
+        {/* Testimonials Grid */}
+        <div className="grid lg:grid-cols-3 md:grid-cols-2 gap-8 mb-20">
+          {testimonials.length > 0 ? testimonials.map((testimonial, index) => (
             <div 
               key={index} 
-              className="bg-gradient-to-br from-red-900/80 to-red-950/80 p-6 rounded-xl relative shadow-lg backdrop-blur-sm hover:shadow-2xl hover:-translate-y-1 transition-all duration-300"
+              className="group bg-white/90 backdrop-blur-sm p-8 rounded-3xl shadow-lg hover:shadow-2xl transition-all duration-500 border border-white/20 hover:border-red-200/50 hover:-translate-y-2 relative overflow-hidden"
             >
-              <div className="absolute top-3 right-4 opacity-20">
-                <Quote size={32} />
+              {/* Card Background Pattern */}
+              <div className="absolute top-0 right-0 w-32 h-32 opacity-5">
+                <Quote size={128} className="text-red-500" />
               </div>
               
-              <div className="flex items-center mb-4">
-                <div className="mr-4 rounded-full overflow-hidden bg-red-800 h-12 w-12 flex items-center justify-center">
-                  {testimonial.avatar ? (
-                    <img src={testimonial.avatar} alt={testimonial.name} className="h-full w-full object-cover" />
-                  ) : (
-                    <User size={24} className="text-red-100" />
-                  )}
+              {/* Quote Icon */}
+              <div className="absolute top-6 left-6 opacity-20 group-hover:opacity-30 transition-opacity">
+                <Quote size={24} className="text-red-400" />
+              </div>
+              
+              {/* User Info */}
+              <div className="flex items-center mb-6 relative z-10">
+                <div className="relative mr-4">
+                  <div className="h-14 w-14 rounded-full overflow-hidden bg-gradient-to-r from-red-100 to-rose-100 flex items-center justify-center ring-4 ring-white shadow-lg">
+                    {testimonial.avatar ? (
+                      <img 
+                        src={testimonial.avatar} 
+                        alt={testimonial.name} 
+                        className="h-full w-full object-cover" 
+                        onError={(e) => {
+                          console.error('Error loading testimonial avatar:', testimonial.avatar);
+                          e.target.src = 'https://via.placeholder.com/60x60';
+                        }}
+                      />
+                    ) : (
+                      <User size={24} className="text-red-500" />
+                    )}
+                  </div>
+                  <div className="absolute -bottom-1 -right-1 h-6 w-6 bg-green-500 rounded-full border-2 border-white flex items-center justify-center">
+                    <Heart size={10} className="text-white" fill="currentColor" />
+                  </div>
                 </div>
-                <div>
-                  <div className="font-medium text-lg">{testimonial.name}</div>
-                  <div className="text-red-300 text-sm flex items-center">
+                <div className="flex-1">
+                  <div className="font-semibold text-lg text-slate-800">{testimonial.name}</div>
+                  <div className="flex items-center gap-2 mt-1">
                     {testimonial.bloodType && (
-                      <span className="bg-red-800/50 px-2 py-0.5 rounded-full text-xs mr-2">
+                      <span className="bg-gradient-to-r from-red-500 to-rose-500 text-white px-3 py-1 rounded-full text-xs font-medium shadow-sm">
                         {testimonial.bloodType}
                       </span>
                     )}
-                    {testimonial.role || ''}
+                    <div className="flex">
+                      {[...Array(5)].map((_, i) => (
+                        <Star key={i} size={12} className="text-yellow-400" fill="currentColor" />
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>
               
+              {/* Highlight Badge */}
               {testimonial.highlight && (
-                <div className="mb-3">
-                  <span className="bg-red-700/30 text-red-200 text-xs px-2 py-1 rounded-full flex items-center w-fit">
-                    <Award size={12} className="mr-1" />
+                <div className="mb-4">
+                  <span className="bg-gradient-to-r from-blue-500 to-purple-500 text-white text-xs px-3 py-1.5 rounded-full flex items-center w-fit shadow-sm">
+                    <Award size={12} className="mr-1.5" />
                     {testimonial.highlight}
                   </span>
                 </div>
               )}
               
-              <div className="text-lg italic mb-4">"{testimonial.message}"</div>
+              {/* Message */}
+              <div className="text-slate-700 text-base leading-relaxed mb-6 italic">
+                "{testimonial.message}"
+              </div>
               
-              <div className="flex justify-end">
-                <div className="flex space-x-1">
-                  {[...Array(5)].map((_, i) => (
-                    <Heart 
-                      key={i} 
-                      size={14} 
-                      className="text-red-400" 
-                      fill="currentColor"
-                    />
-                  ))}
+              {/* Bottom Section */}
+              <div className="flex justify-between items-center pt-4 border-t border-slate-100">
+                <div className="text-xs text-slate-500">
+                  {new Date(testimonial.createdAt).toLocaleDateString()}
+                </div>
+                <div className="flex items-center gap-1">
+                  <MessageCircle size={14} className="text-red-400" />
+                  <span className="text-xs text-slate-500">Verified Story</span>
                 </div>
               </div>
             </div>
-          ))}
+          )) : (
+            <div className="col-span-full text-center py-20">
+              <div className="mb-6">
+                <Users size={48} className="text-slate-300 mx-auto" />
+              </div>
+              <h3 className="text-xl font-semibold text-slate-600 mb-2">No Stories Yet</h3>
+              <p className="text-slate-500">Be the first to share your inspiring blood donation story!</p>
+            </div>
+          )}
         </div>
 
-        <div className="mt-16 text-center">
-          <button className="bg-white text-red-700 hover:bg-red-50 px-8 py-3 rounded-lg font-semibold transition-all duration-300 shadow-lg hover:shadow-xl relative overflow-hidden group">
-            <span className="relative z-10 flex items-center justify-center">
-              <Heart size={18} className="mr-2 group-hover:animate-pulse" />
-              Share Your Story
-            </span>
-            <span className="absolute inset-0 bg-gradient-to-r from-white to-red-100 transform scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-300"></span>
-          </button>
+        {/* CTA Section */}
+        <div className="text-center">
+          <div className="bg-white/80 backdrop-blur-sm rounded-3xl p-8 shadow-lg border border-white/20 max-w-2xl mx-auto">
+            <h3 className="text-2xl font-bold text-slate-800 mb-4">Share Your Story</h3>
+            <p className="text-slate-600 mb-8">
+              Your experience could inspire others to become life-saving donors. Share your journey with the Raksetu community.
+            </p>
+            <button 
+              className="bg-gradient-to-r from-red-500 to-rose-500 hover:from-red-600 hover:to-rose-600 text-white px-12 py-4 rounded-full font-semibold transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105 relative overflow-hidden group"
+              onClick={() => setShowForm(true)}
+              disabled={loading}
+            >
+              <span className="relative z-10 flex items-center justify-center">
+                <Heart size={20} className="mr-3 group-hover:animate-pulse" />
+                {loading ? 'Submitting...' : 'Share Your Story'}
+              </span>
+              <div className="absolute inset-0 bg-gradient-to-r from-rose-500 to-red-500 transform scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-300"></div>
+            </button>
+          </div>
         </div>
+
+        {/* Modal */}
+        {showForm && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-3xl p-8 max-w-lg w-full shadow-2xl relative overflow-hidden">
+              {/* Modal Background */}
+              <div className="absolute top-0 right-0 w-32 h-32 opacity-5">
+                <Heart size={128} className="text-red-500" />
+              </div>
+              
+              <div className="relative z-10">
+                <div className="flex items-center mb-6">
+                  <div className="h-12 w-12 bg-gradient-to-r from-red-500 to-rose-500 rounded-full flex items-center justify-center mr-4">
+                    <Heart className="text-white" size={20} fill="currentColor" />
+                  </div>
+                  <h3 className="text-2xl font-bold text-slate-800">Share Your Story</h3>
+                </div>
+                
+                {error && (
+                  <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-6">
+                    {error}
+                  </div>
+                )}
+                
+                <form onSubmit={handleSubmit} className="space-y-6">
+                  <div>
+                    <label className="block text-sm font-semibold mb-2 text-slate-700">Your Story</label>
+                    <textarea
+                      name="message"
+                      value={formData.message}
+                      onChange={handleChange}
+                      className="w-full p-4 rounded-xl bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-transparent placeholder-slate-400 transition-all duration-200"
+                      rows="4"
+                      placeholder="Share your experience with Raksetu and how it impacted your life..."
+                      required
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-semibold mb-2 text-slate-700">Story Category (Optional)</label>
+                    <input
+                      type="text"
+                      name="highlight"
+                      value={formData.highlight}
+                      onChange={handleChange}
+                      className="w-full p-4 rounded-xl bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-transparent placeholder-slate-400 transition-all duration-200"
+                      placeholder="e.g., Emergency Response, First Time Donor, Life Saved"
+                    />
+                  </div>
+                  
+                  <div className="flex gap-4">
+                    <button
+                      type="button"
+                      className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-xl transition-colors font-semibold"
+                      onClick={() => setShowForm(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 bg-gradient-to-r from-red-500 to-rose-500 hover:from-red-600 hover:to-rose-600 text-white py-3 rounded-xl transition-all duration-300 font-semibold shadow-lg transform hover:scale-105"
+                      disabled={loading}
+                    >
+                      {loading ? 'Sharing...' : 'Share Story'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );
