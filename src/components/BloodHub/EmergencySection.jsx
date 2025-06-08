@@ -54,6 +54,11 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [chatId, setChatId] = useState(null);
+  const [isShareClicked, setIsShareClicked] = useState(false);
+  const [isSaveClicked, setIsSaveClicked] = useState(false);
+  const [isMarkClicked, setIsMarkClicked] = useState(false);
+  const [respondedEmergencies, setRespondedEmergencies] = useState([]);
+  const [showSaveSuccessModal, setShowSaveSuccessModal] = useState(false);
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -65,6 +70,31 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  useEffect(() => {
+    if (!userProfile || !userProfile.id) return;
+
+    const donationsRef = query(
+      collection(db, 'donationsDone'),
+      where('userId', '==', userProfile.id),
+      where('type', '==', 'emergency'),
+      where('status', '==', 'pending')
+    );
+
+    const unsubscribe = onSnapshot(
+      donationsRef,
+      (snapshot) => {
+        const responded = snapshot.docs.map((doc) => doc.data().id);
+        setRespondedEmergencies(responded);
+      },
+      (error) => {
+        console.error('Error fetching responded emergencies:', error);
+        setRespondedEmergencies([]);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [userProfile]);
 
   useEffect(() => {
     if (!userProfile || !userProfile.bloodType || !emergencyRequests) return;
@@ -187,7 +217,7 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
     try {
       if (selectedEmergency && selectedEmergency.id) {
         const newDonorsResponded = (selectedEmergency.donorsResponded || 0) + 1;
-        
+
         await updateDoc(doc(db, 'emergencyRequests', selectedEmergency.id), {
           donorsResponded: newDonorsResponded,
           donorResponseTime: new Date().toISOString(),
@@ -197,33 +227,48 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
           await deleteDoc(doc(db, 'emergencyRequests', selectedEmergency.id));
         }
 
+        const donationDetails = {
+          id: selectedEmergency.id,
+          userId: userProfile.id,
+          type: 'emergency',
+          hospital: selectedEmergency.hospital,
+          location: selectedEmergency.location,
+          bloodType: selectedEmergency.bloodType,
+          units: selectedEmergency.units || 1,
+          date: new Date().toISOString().split('T')[0],
+          time: new Date().toISOString().split('T')[1].split('.')[0],
+          points: 0, // Points will be awarded after marking as completed
+          status: 'pending',
+          timestamp: new Date().toISOString(),
+        };
+
+        const donationRef = doc(collection(db, 'donationsDone'));
+        await setDoc(donationRef, {
+          ...donationDetails,
+          donationId: donationRef.id,
+        });
+
         if (userProfile?.phoneNumber) {
           await fetch('https://raksetu-backend.vercel.app/send-sms', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               to: userProfile.phoneNumber,
-              message: `Thank you for confirming your donation! Details:\nHospital: ${selectedEmergency.hospital}\nLocation: ${selectedEmergency.location}\nBlood Type: ${selectedEmergency.bloodType}\nUnits: ${selectedEmergency.units || 1}\nContact: ${selectedEmergency.contactPhone || 'Hospital Contact'}`,
+              message: `Thank you for confirming your donation! Details:\nHospital: ${selectedEmergency.hospital}\nLocation: ${selectedEmergency.location}\nBlood Type: ${selectedEmergency.bloodType}\nUnits: ${selectedEmergency.units || 1}\nContact: ${selectedEmergency.contactPhone || 'Hospital Contact'}\nPoints will be awarded after donation is completed.`,
             }),
           });
         }
 
         if (onDonationConfirmed) {
-          onDonationConfirmed({
-            id: selectedEmergency.id,
-            type: 'emergency',
-            hospital: selectedEmergency.hospital,
-            location: selectedEmergency.location,
-            bloodType: selectedEmergency.bloodType,
-            units: selectedEmergency.units || 1,
-            date: new Date().toISOString().split('T')[0],
-            time: new Date().toISOString().split('T')[1].split('.')[0],
-          });
+          console.log('Calling onDonationConfirmed with:', donationDetails);
+          onDonationConfirmed(donationDetails);
         }
+
+        setCurrentView('donation-confirmed');
       }
-      setCurrentView('donation-confirmed');
     } catch (error) {
       console.error("Error confirming donation:", error);
+      setError('Failed to confirm donation. Please try again.');
       setCurrentView('donation-confirmed');
     } finally {
       setIsProcessing(false);
@@ -370,11 +415,22 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
   const EmergencyCard = ({ emergency }) => {
     const impactLevel = emergency.urgency === "Critical" ? 
       "high" : (emergency.units > 2 ? "medium" : "standard");
+    const hasResponded = respondedEmergencies.includes(emergency.id);
 
     return (
       <div
-        className="bg-white rounded-xl overflow-hidden shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 border border-gray-100"
-        onClick={() => handleEmergencySelect(emergency)}
+        className={`bg-white rounded-xl overflow-hidden shadow-md transition-all duration-300 border border-gray-100 ${
+          hasResponded
+            ? 'opacity-50 cursor-not-allowed'
+            : 'hover:shadow-lg hover:-translate-y-1 cursor-pointer'
+        }`}
+        onClick={() => {
+          if (hasResponded) {
+            alert("You've already responded to this emergency and confirmed your donation. Please mark it as completed in the Track section after donating.");
+            return;
+          }
+          handleEmergencySelect(emergency);
+        }}
         aria-label={`Emergency request for blood type ${emergency.bloodType} at ${emergency.hospital}`}
       >
         <div className="relative">
@@ -428,7 +484,7 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
                   <TrendingUp size={16} className="text-orange-500" />
                 )}
                 <span className={`text-xs font-medium ${
-                  impactLevel === "high" ? "text-red-600" : "text-orange-600"
+                  impactLevel === "high" ? "text-red-500" : "text-orange-500"
                 }`}>
                   {impactLevel === "high" ? "High impact opportunity" : "Medium impact opportunity"}
                 </span>
@@ -443,13 +499,22 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
               </span>
             </div>
             <button
-              className="text-sm bg-red-600 text-white px-3 py-1 rounded-lg hover:bg-red-700 transition-colors"
+              className={`text-sm px-3 py-1 rounded-lg transition-colors ${
+                hasResponded
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-red-600 text-white hover:bg-red-700'
+              }`}
               onClick={(e) => {
                 e.stopPropagation();
+                if (hasResponded) {
+                  alert("You've already responded to this emergency and confirmed your donation. Please mark it as completed in the Track section after donating.");
+                  return;
+                }
                 handleEmergencySelect(emergency);
               }}
+              disabled={hasResponded}
             >
-              Respond
+              {hasResponded ? "You've Responded" : "Respond"}
             </button>
           </div>
         </div>
@@ -470,7 +535,7 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
           {isLoading ? (
             <LoadingPulse />
           ) : error ? (
-            <div className="text-center p-8">
+            <div className="text-center p-8 bg-white rounded-xl border border-gray-200">
               <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <AlertCircle size={32} className="text-red-600" />
               </div>
@@ -1024,6 +1089,105 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
     );
   };
 
+  const handleShareDonation = () => {
+    const donationId = selectedEmergency.id;
+    const shareUrl = `${window.location.origin}/donation/${donationId}`;
+    const shareData = {
+      title: 'Blood Donation Confirmation',
+      text: `I just confirmed a blood donation! Details:\nHospital: ${selectedEmergency.hospital}\nLocation: ${selectedEmergency.location}\nBlood Type: ${selectedEmergency.bloodType}\nUnits: ${selectedEmergency.units || 1}\nPoints will be awarded after donation is completed.`,
+      url: shareUrl,
+    };
+
+    if (navigator.share) {
+      navigator.share(shareData)
+        .then(() => setIsShareClicked(true))
+        .catch((error) => console.error('Error sharing:', error));
+    } else {
+      navigator.clipboard.writeText(`${shareData.text}\nLink: ${shareUrl}`)
+        .then(() => {
+          setIsShareClicked(true);
+          alert('Share details and link copied to clipboard:\n' + shareData.text + '\nLink: ' + shareUrl);
+        })
+        .catch((error) => {
+          console.error('Error copying share details:', error);
+          alert('Failed to copy share details. Please try again.');
+        });
+    }
+  };
+
+  const handleSaveDonation = () => {
+    const donationDetailsText = `
+Blood Donation Confirmation
+Hospital: ${selectedEmergency.hospital}
+Location: ${selectedEmergency.location}
+Blood Type: ${selectedEmergency.bloodType}
+Units: ${selectedEmergency.units || 1}
+Date: ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+Time: ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+Points will be awarded after donation is completed.
+    `.trim();
+
+    navigator.clipboard
+      .writeText(donationDetailsText)
+      .then(() => {
+        setShowSaveSuccessModal(true);
+      })
+      .catch((error) => {
+        console.error('Error copying to clipboard:', error);
+        alert('Failed to copy to clipboard. Please try again.');
+      });
+
+    const savedDonations = JSON.parse(localStorage.getItem('savedDonations') || '[]');
+    const donationDetails = {
+      id: selectedEmergency.id,
+      hospital: selectedEmergency.hospital,
+      location: selectedEmergency.location,
+      bloodType: selectedEmergency.bloodType,
+      units: selectedEmergency.units || 1,
+      date: new Date().toISOString().split('T')[0],
+      time: new Date().toISOString().split('T')[1].split('.')[0],
+      points: 0, // Points will be awarded after marking as completed
+    };
+    savedDonations.push(donationDetails);
+    localStorage.setItem('savedDonations', JSON.stringify(savedDonations));
+  };
+
+  const handleMarkDonation = async () => {
+    try {
+      const donationsQuery = query(
+        collection(db, 'donationsDone'),
+        where('userId', '==', userProfile.id),
+        where('id', '==', selectedEmergency.id),
+        where('type', '==', 'emergency'),
+        where('status', '==', 'pending')
+      );
+
+      const snapshot = await getDocs(donationsQuery);
+      if (snapshot.empty) {
+        throw new Error('Donation not found in donationsDone');
+      }
+
+      const donationDoc = snapshot.docs[0];
+      await updateDoc(doc(db, 'donationsDone', donationDoc.id), {
+        status: 'completed',
+        points: 150, // Award points when marking as completed
+        markedAt: new Date().toISOString(),
+      });
+
+      // Update user profile with new points
+      const userRef = doc(db, 'users', userProfile.id);
+      await updateDoc(userRef, {
+        impactPoints: (userProfile.impactPoints || 0) + 150,
+      });
+
+      setIsMarkClicked(true);
+      alert('Donation marked as completed! You have earned 150 Impact Points.');
+    } catch (error) {
+      console.error('Error marking donation:', error);
+      setError('Failed to mark donation. Please try again.');
+    }
+  };
+
   const renderDonationConfirmed = () => {
     return (
       <div className="space-y-4">
@@ -1033,33 +1197,15 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
           <div className="p-6 text-center">
             <div className="relative mb-8">
               <div className="absolute inset-0 bg-green-500 opacity-10 animate-ping rounded-full"></div>
-              <div className="w-24 h-24 bg-gradient-to-r from-green-500 to-emerald-500 rounded-full flex items-center justify-center mx-auto relative z-10">
-                <Heart size={48} className="text-white" />
+              <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto relative z-10 border-4 border-green-200">
+                <Heart size={48} className="text-green-600" />
               </div>
             </div>
             
             <h2 className="text-2xl font-bold text-gray-800 mb-2">Thank You, Lifesaver!</h2>
             <p className="text-gray-600 mb-6 max-w-md mx-auto">
-              Your commitment to donate blood will help save lives. The hospital has been notified of your arrival.
+              Your commitment to donate blood will help save lives. The hospital has been notified of your arrival. Please mark the donation as completed in the Track section after donating to earn your Impact Points.
             </p>
-            
-            <div className="p-5 bg-gradient-to-r from-red-50 to-orange-50 rounded-xl mb-8 border border-red-100">
-              <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
-                <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shrink-0">
-                  <Award size={32} className="text-yellow-500" />
-                </div>
-                <div className="text-center sm:text-left">
-                  <h3 className="text-lg font-semibold text-gray-800 mb-1">Impact Milestone Reached</h3>
-                  <p className="text-gray-600 text-sm mb-2">
-                    You've earned 150 Impact Points for this donation!
-                  </p>
-                  <div className="w-full bg-gray-200 rounded-full h-2.5">
-                    <div className="bg-yellow-500 h-2.5 rounded-full" style={{ width: '70%' }}></div>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">350 more points until "Elite Donor" status</p>
-                </div>
-              </div>
-            </div>
             
             <div className="bg-white shadow-sm rounded-xl border border-gray-200 mb-6">
               <div className="divide-y divide-gray-100">
@@ -1101,13 +1247,13 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
                 href={`https://www.google.com/maps/dir/?api=1&destination=${selectedEmergency.coordinates?.latitude},${selectedEmergency.coordinates?.longitude}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full bg-blue-600 text-white py-3 rounded-xl hover:bg-blue-700 transition-colors shadow-md flex items-center justify-center gap-2"
+                className="w-full bg-red-600 text-white py-3 rounded-lg hover:bg-red-700 transition-colors shadow-md flex items-center justify-center gap-2"
               >
                 <Navigation size={18} />
                 Get Directions
               </a>
               <button
-                className="w-full bg-gray-100 text-gray-800 py-3 rounded-xl hover:bg-gray-200 transition-colors flex items-center justify-center gap-2"
+                className="w-full bg-gray-100 text-gray-800 py-3 rounded-lg hover:bg-gray-200 transition-colors flex items-center justify-center gap-2"
                 onClick={backToEmergencies}
               >
                 <Heart size={18} className="text-red-500" />
@@ -1116,14 +1262,38 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
             </div>
             
             <div className="mt-8 flex items-center justify-center gap-3">
-              <button className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
-                <Share2 size={18} className="text-gray-600" />
+              <button 
+                onClick={handleShareDonation}
+                className={`p-2 bg-white rounded-lg border border-gray-200 transition-all duration-300 ${
+                  isShareClicked ? 'bg-red-100 scale-110' : 'hover:bg-gray-50'
+                }`}
+                aria-label="Share donation"
+              >
+                <Share2 size={18} className={`${
+                  isShareClicked ? 'text-red-600' : 'text-red-500'
+                }`} />
               </button>
-              <button className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
-                <Bookmark size={18} className="text-gray-600" />
+              <button 
+                onClick={handleSaveDonation}
+                className={`p-2 bg-white rounded-lg border border-gray-200 transition-all duration-300 ${
+                  isSaveClicked ? 'bg-red-100 scale-110' : 'hover:bg-gray-50'
+                }`}
+                aria-label="Save donation"
+              >
+                <Bookmark size={18} className={`${
+                  isSaveClicked ? 'text-red-600' : 'text-red-500'
+                }`} />
               </button>
-              <button className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
-                <Calendar size={18} className="text-gray-600" />
+              <button 
+                onClick={handleMarkDonation}
+                className={`p-2 bg-white rounded-lg border border-gray-200 transition-all duration-300 ${
+                  isMarkClicked ? 'bg-green-100 scale-110' : 'hover:bg-gray-50'
+                }`}
+                aria-label="Mark donation as completed"
+              >
+                <CheckCircle size={18} className={`${
+                  isMarkClicked ? 'text-green-600' : 'text-green-500'
+                }`} />
               </button>
             </div>
 
@@ -1135,17 +1305,43 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
           </div>
         </div>
         
-        <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-green-600 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 animate-fadeIn">
-          <CheckCircle size={16} />
-          <span>Donation confirmed successfully!</span>
+        <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-white rounded-lg shadow-lg flex items-center gap-2 p-4 max-w-md w-full animate-fadeIn border border-gray-200">
+          <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+            <CheckCircle size={16} className="text-green-600" />
+          </div>
+          <span className="text-gray-800">Donation confirmed successfully!</span>
+          <button
+            className="ml-auto bg-red-600 text-white px-3 py-1 rounded-lg hover:bg-red-700 transition-colors"
+            onClick={() => backToEmergencies()}
+          >
+            Close
+          </button>
         </div>
+
+        {showSaveSuccessModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl p-6 max-w-md w-full text-center">
+              <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckCircle size={24} className="text-green-600" />
+              </div>
+              <h3 className="text-xl font-semibold mb-2">Saved Successfully!</h3>
+              <p className="text-gray-600 mb-6">Donation details have been copied to your clipboard.</p>
+              <button
+                className="bg-red-600 hover:bg-red-700 text-white px-6 py-2.5 rounded-lg font-medium transition-colors"
+                onClick={() => setShowSaveSuccessModal(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
 
   const renderChatInterface = () => (
     <div className="fixed bottom-4 right-4 z-50">
-      <div className="bg-white rounded-lg shadow-xl w-80 h-[500px] flex flex-col">
+      <div className="bg-white rounded-xl shadow-xl w-80 h-[500px] flex flex-col border border-gray-200">
         <div className="flex justify-between items-center p-4 bg-red-600 text-white rounded-t-lg">
           <h3 className="text-lg font-bold">Chat with {selectedEmergency?.hospital}</h3>
           <button onClick={() => setShowChat(false)} className="hover:bg-red-700 p-1 rounded-full">
@@ -1243,7 +1439,7 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
 
       {showChat && renderChatInterface()}
 
-      <style jsx>{`
+      <style>{`
         @keyframes fadeIn {
           from { opacity: 0; transform: translate(-50%, 20px); }
           to { opacity: 1; transform: translate(-50%, 0); }

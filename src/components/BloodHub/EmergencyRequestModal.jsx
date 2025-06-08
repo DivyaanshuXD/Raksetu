@@ -20,8 +20,8 @@ export default function EmergencyRequestModal({ show, setShow, setShowSuccess, u
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadingLocation, setLoadingLocation] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(''); // Add state for error message
 
-  // Get real location with reverse geocoding
   const handleGetLocation = () => {
     setLoadingLocation(true);
     if (navigator.geolocation) {
@@ -45,12 +45,11 @@ export default function EmergencyRequestModal({ show, setShow, setShowSuccess, u
     }
   };
 
-  // Reverse geocode using Nominatim
   const reverseGeocode = async (latitude, longitude) => {
     try {
       const response = await axios.get(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18`, {
         headers: {
-          'User-Agent': 'RaksetuApp/1.0 (makrostake@gmail.com)' // Replace with your email
+          'User-Agent': 'RaksetuApp/1.0 (makrostake@gmail.com)'
         }
       });
       return response.data.display_name || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
@@ -63,6 +62,7 @@ export default function EmergencyRequestModal({ show, setShow, setShowSuccess, u
   const handleEmergencyRequest = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setErrorMessage(''); // Reset error message
     try {
       await addEmergencyRequest(emergencyForm, userLocation);
       setEmergencyForm({
@@ -80,7 +80,7 @@ export default function EmergencyRequestModal({ show, setShow, setShowSuccess, u
       setShowSuccess(true);
     } catch (error) {
       console.error('Error submitting emergency request:', error);
-      alert('Failed to submit emergency request. Please try again.');
+      setErrorMessage('Failed to submit emergency request. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -90,6 +90,11 @@ export default function EmergencyRequestModal({ show, setShow, setShowSuccess, u
 
   return (
     <Modal onClose={() => setShow(false)} title="Request Emergency Blood">
+      {errorMessage && (
+        <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
+          {errorMessage}
+        </div>
+      )}
       <form onSubmit={handleEmergencyRequest} className="space-y-4">
         <div>
           <label className="block text-sm font-medium mb-1">Patient Name</label>

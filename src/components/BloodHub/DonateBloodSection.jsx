@@ -122,58 +122,36 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
   }, [userLocation, auth.currentUser]);
 
   const parseAvailability = (availabilityString) => {
-    if (!availabilityString || availabilityString.includes('Not Available')) return {};
-    const entries = availabilityString.split(',').map(item => {
-      const [type, count] = item.trim().split(':');
-      return [type.replace('Ve', ''), parseInt(count) || 0];
-    });
-    return Object.fromEntries(entries);
+    // Define all possible blood groups
+    const allBloodGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
+    
+    // Initialize default availability with 0 units for all blood groups
+    const availability = Object.fromEntries(allBloodGroups.map(group => [group, 0]));
+
+    // Parse the availability string if it exists
+    if (availabilityString && !availabilityString.includes('Not Available')) {
+      const entries = availabilityString.split(',').map(item => {
+        const [type, count] = item.trim().split(':');
+        return [type.replace('Ve', ''), parseInt(count) || 0];
+      });
+      entries.forEach(([type, count]) => {
+        if (allBloodGroups.includes(type)) {
+          availability[type] = count;
+        }
+      });
+    }
+
+    return availability;
   };
 
-  const handleScheduleVisit = (bank) => {
+  const handleScheduleVisit = (bank = null) => {
     if (!auth.currentUser) {
       setAuthMode('login');
       setShowAuthModal(true);
       return;
     }
-    if (bank) {
-      setSelectedBank(bank);
-      setShowScheduleModal(true);
-    } else {
-      setShowBankSelectionModal(true);
-    }
-  };
-
-  const handleSelectBank = (bank) => {
     setSelectedBank(bank);
-    setShowBankSelectionModal(false);
     setShowScheduleModal(true);
-  };
-
-  const scheduleDonation = async (bloodBankId) => {
-    try {
-      const user = auth.currentUser;
-      if (!user) {
-        setError('Please sign in to schedule a donation');
-        return;
-      }
-
-      const appointmentDate = new Date(); // Replace with user-selected date from UI
-      const response = await axios.post(`${import.meta.env.VITE_BACKEND_URL}/schedule-donation`, {
-        bloodBankId,
-        userId: user.uid,
-        appointmentDate: appointmentDate.toISOString(),
-      });
-
-      if (response.data.success) {
-        alert('Appointment scheduled successfully!');
-      } else {
-        setError('There was an error scheduling your appointment. Please try again.');
-      }
-    } catch (error) {
-      console.error('Error scheduling donation:', error);
-      setError('There was an error scheduling your appointment. Please try again.');
-    }
   };
 
   const handleSubmitAppointment = async () => {
@@ -181,38 +159,31 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
 
     try {
       const currentUser = auth.currentUser;
-      const appointmentRef = await addDoc(collection(db, 'appointments'), {
-        userId: currentUser.uid,
-        bankId: selectedBank.id,
-        bankName: selectedBank.name,
-        date: appointmentDate,
-        time: appointmentTime,
-        status: 'scheduled',
-        createdAt: serverTimestamp(),
-        location: selectedBank.location,
-      });
-
-      const userRef = doc(db, 'users', currentUser.uid);
-      const userSnap = await getDoc(userRef);
-      if (userSnap.exists()) {
-        let appointments = userSnap.data().appointments || [];
-        appointments.push({
-          id: appointmentRef.id,
-          bankId: selectedBank.id,
-          bankName: selectedBank.name,
-          date: appointmentDate,
-          time: appointmentTime,
-          status: 'scheduled',
-          location: selectedBank.location,
-        });
-        await updateDoc(userRef, { appointments });
+      const dateTimeString = `${appointmentDate} ${appointmentTime}`;
+      const parsedDate = new Date(dateTimeString);
+      if (isNaN(parsedDate.getTime())) {
+        throw new Error('Invalid date or time format');
       }
 
+      // Add the appointment to the donationsDone collection
+      const appointmentData = {
+        userId: currentUser.uid,
+        type: 'appointment',
+        bankName: selectedBank.name,
+        date: parsedDate,
+        time: appointmentTime,
+        location: selectedBank.location,
+        status: 'upcoming',
+        createdAt: serverTimestamp(),
+      };
+      const appointmentRef = await addDoc(collection(db, 'donationsDone'), appointmentData);
+
+      // Update the parent component's donations state
       setDonations(prev => [...prev, {
         id: appointmentRef.id,
         type: 'appointment',
         bankName: selectedBank.name,
-        date: appointmentDate,
+        date: parsedDate,
         time: appointmentTime,
         location: selectedBank.location,
       }]);
@@ -223,6 +194,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
       setShowScheduleModal(false);
       setAppointmentDate('');
       setAppointmentTime('');
+      setSelectedBank(null);
     } catch (error) {
       console.error("Error scheduling appointment:", error);
       setModalHeading('Error');
@@ -463,7 +435,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
             </p>
             <button 
               className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-lg transition-colors text-sm font-medium flex items-center justify-center gap-2"
-              onClick={handleScheduleVisit}
+              onClick={() => handleScheduleVisit(null)}
             >
               <Check size={16} />
               Schedule Donation
@@ -471,86 +443,204 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
           </div>
         </div>
 
-        <div className="mb-10" id="blood-banks">
-          <h3 className="text-xl font-semibold mb-4">Nearby Blood Banks</h3>
+        <div className="mb-12" id="blood-banks">
+          {/* Section Header */}
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">Nearby Blood Banks</h3>
+              <p className="text-gray-600">Find blood banks in your area with real-time availability</p>
+            </div>
+            <div className="hidden md:flex items-center bg-red-50 px-4 py-2 rounded-full">
+              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse mr-2"></div>
+              <span className="text-sm font-medium text-red-700">Live Updates</span>
+            </div>
+          </div>
+
+          {/* Loading State */}
           {loading ? (
-            <div className="text-center py-10">
-              <div className="inline-block w-8 h-8 border-4 border-gray-200 border-t-red-600 rounded-full animate-spin mb-2"></div>
-              <p>Loading blood banks...</p>
+            <div className="text-center py-16">
+              <div className="relative">
+                <div className="inline-block w-12 h-12 border-4 border-red-100 border-t-red-500 rounded-full animate-spin mb-4"></div>
+                <div className="absolute inset-0 w-12 h-12 border-2 border-red-200 rounded-full animate-ping"></div>
+              </div>
+              <h4 className="text-lg font-semibold text-gray-700 mb-2">Finding Blood Banks</h4>
+              <p className="text-gray-500">Searching for nearby locations...</p>
             </div>
           ) : error ? (
-            <div className="text-center py-10 text-red-600">
-              <p>{error}</p>
+            /* Error State */
+            <div className="text-center py-16">
+              <div className="bg-red-50 border border-red-200 rounded-2xl p-8 max-w-md mx-auto">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                </div>
+                <h4 className="text-lg font-semibold text-red-700 mb-2">Unable to Load Blood Banks</h4>
+                <p className="text-red-600">{error}</p>
+                <button 
+                  onClick={() => window.location.reload()} 
+                  className="mt-4 bg-red-500 hover:bg-red-600 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+                >
+                  Try Again
+                </button>
+              </div>
             </div>
           ) : bloodBanks.length === 0 ? (
-            <div className="text-center py-10">
-              <p className="text-gray-500">No blood banks found nearby.</p>
+            /* Empty State */
+            <div className="text-center py-16">
+              <div className="bg-gray-50 border-2 border-dashed border-gray-200 rounded-2xl p-8 max-w-md mx-auto">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <MapPin size={32} className="text-gray-400" />
+                </div>
+                <h4 className="text-lg font-semibold text-gray-700 mb-2">No Blood Banks Found</h4>
+                <p className="text-gray-500 mb-4">We couldn't find any blood banks in your area.</p>
+                <button className="bg-red-500 hover:bg-red-600 text-white px-6 py-2 rounded-lg font-medium transition-colors">
+                  Expand Search Area
+                </button>
+              </div>
             </div>
           ) : (
+            /* Blood Banks Grid */
             <>
-              <div className="grid md:grid-cols-3 gap-4">
-                {bloodBanks.slice(0, 3).map((bank) => (
-                  <div key={bank.id} className="bg-white p-4 rounded-xl shadow-sm">
-                    <h4 className="font-medium mb-1">{bank.name}</h4>
-                    <div className="flex items-center text-sm text-gray-500 mb-1">
-                      <MapPin size={14} className="mr-1" /> {bank.displayLocation}
-                    </div>
-                    <div className="text-sm text-gray-500 mb-1">
-                      <Phone size={14} className="mr-1 inline" /> {bank.contactPhone || 'Not available'}
-                    </div>
-                    <div className="text-sm text-gray-500 mb-1">
-                      Email: {bank.email || 'Not available'}
-                    </div>
-                    <div className="text-sm text-gray-500 mb-1">
-                      Category: {bank.category}
-                    </div>
-                    <div className="text-sm text-gray-500 mb-1">
-                      Type: {bank.type}
-                    </div>
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {bloodBanks
+                  .filter(bank => {
+                    // Only include blood banks with at least one blood group having count > 0
+                    const availableBloodGroups = Object.entries(bank.availability || {}).filter(
+                      ([_, count]) => count > 0
+                    );
+                    return availableBloodGroups.length > 0;
+                  })
+                  .slice(0, 3)
+                  .map((bank, index) => {
+                    // Filter available blood groups (count > 0)
+                    const availableBloodGroups = Object.entries(bank.availability || {}).filter(
+                      ([_, count]) => count > 0
+                    );
 
-                    <div className="mb-3">
-                      <div className="text-sm font-medium mb-2">Blood Availability:</div>
-                      <div className="grid grid-cols-4 gap-2">
-                        {Object.entries(bank.availability || {}).map(([type, count]) => (
-                          <div key={type} className="text-center">
-                            <div
-                              className={`text-sm font-bold rounded-full w-8 h-8 mx-auto flex items-center justify-center ${
-                                count < 5 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
-                              }`}
-                            >
-                              {type}
-                            </div>
-                            <div className="text-xs mt-1">{count} units</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <button 
-                        className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg text-sm font-medium transition-colors"
-                        onClick={() => handleScheduleVisit(bank)}
+                    return (
+                      <div 
+                        key={bank.id} 
+                        className="group bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100 hover:border-red-200 overflow-hidden transform hover:-translate-y-1"
+                        style={{ animationDelay: `${index * 100}ms` }}
                       >
-                        Schedule Visit
-                      </button>
-                      <a href={`tel:${bank.contactPhone || '1234567890'}`} className="bg-gray-100 hover:bg-gray-200 p-2 rounded-lg transition-colors">
-                        <Phone size={16} />
-                      </a>
-                      <a href={`https://www.google.com/maps/search/?api=1&query=${bank.coordinates.latitude},${bank.coordinates.longitude}`} target="_blank" rel="noopener noreferrer" className="bg-gray-100 hover:bg-gray-200 p-2 rounded-lg transition-colors">
-                        <MapPin size={16} />
-                      </a>
-                    </div>
-                  </div>
-                ))}
+                        {/* Card Header */}
+                        <div className="bg-gradient-to-r from-red-50 to-pink-50 p-6 pb-4">
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex-1">
+                              <h4 className="font-bold text-lg text-gray-900 mb-1 group-hover:text-red-700 transition-colors">
+                                {bank.name}
+                              </h4>
+                              <div className="flex items-center text-sm text-gray-600">
+                                <MapPin size={14} className="mr-2 text-red-500" />
+                                <span className="truncate">{bank.displayLocation}</span>
+                              </div>
+                            </div>
+                            <div className="ml-3">
+                              <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                            </div>
+                          </div>
+                          
+                          {/* Contact Info */}
+                          <div className="flex items-center text-sm text-gray-600 mb-4">
+                            <Phone size={14} className="mr-2 text-blue-500" />
+                            <span className="font-medium">{bank.contactPhone || 'Contact Available'}</span>
+                          </div>
+                        </div>
+
+                        {/* Blood Availability */}
+                        <div className="px-6 py-4">
+                          <div className="mb-4">
+                            <h5 className="text-sm font-semibold text-gray-700 mb-2 flex items-center">
+                              <div className="w-2 h-2 bg-red-500 rounded-full mr-2"></div>
+                              Blood Availability
+                            </h5>
+                            {availableBloodGroups.length > 0 ? (
+                              <div className="grid grid-cols-4 gap-1.5">
+                                {availableBloodGroups.map(([type, count]) => (
+                                  <div
+                                    key={type}
+                                    className={`text-center p-2 rounded-lg border transition-all ${
+                                      count < 5 
+                                        ? 'bg-orange-50 border-orange-200 text-orange-700' 
+                                        : 'bg-green-50 border-green-200 text-green-700'
+                                    }`}
+                                  >
+                                    <div className="font-bold text-sm">{count}</div>
+                                    <div className="text-[10px] font-medium uppercase tracking-wide">{type}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-center p-3 rounded-xl bg-gray-50 border-2 border-gray-200 text-gray-600">
+                                <p className="text-sm">No blood units available at this time.</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="px-6 pb-6">
+                          <div className="flex items-center gap-3">
+                            <button 
+                              className="flex-1 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white py-3 rounded-xl font-semibold transition-all duration-200 transform hover:scale-105 shadow-md hover:shadow-lg"
+                              onClick={() => handleScheduleVisit(bank)}
+                            >
+                              Schedule Visit
+                            </button>
+                            <a 
+                              href={`tel:${bank.contactPhone || '1234567890'}`} 
+                              className="p-3 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors group"
+                              aria-label="Call blood bank"
+                            >
+                              <Phone size={18} className="text-blue-600 group-hover:scale-110 transition-transform" />
+                            </a>
+                            <a 
+                              href={`https://www.google.com/maps/search/?api=1&query=${bank.coordinates.latitude},${bank.coordinates.longitude}`} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="p-3 bg-green-50 hover:bg-green-100 rounded-xl transition-colors group"
+                              aria-label="View on map"
+                            >
+                              <MapPin size={18} className="text-green-600 group-hover:scale-110 transition-transform" />
+                            </a>
+                          </div>
+                        </div>
+
+                        {/* Hover Effect Overlay */}
+                        <div className="absolute inset-0 bg-gradient-to-r from-red-500/5 to-pink-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+                      </div>
+                    );
+                  })}
               </div>
-              {bloodBanks.length > 3 && (
-                <div className="flex justify-end mt-4">
-                 <button
-      onClick={() => setActiveSection('all-blood-banks')}
-      className="text-red-600 font-medium flex items-center hover:text-red-800 transition-colors"
-    >
-      View More Banks
-    </button>
+
+              {/* View More Section */}
+              {bloodBanks.filter(bank => {
+                const availableBloodGroups = Object.entries(bank.availability || {}).filter(
+                  ([_, count]) => count > 0
+                );
+                return availableBloodGroups.length > 0;
+              }).length > 3 && (
+                <div className="mt-8 text-center">
+                  <div className="bg-gradient-to-r from-gray-50 to-red-50 rounded-2xl p-6">
+                    <p className="text-gray-600 mb-4">
+                      Showing 3 of {bloodBanks.filter(bank => {
+                        const availableBloodGroups = Object.entries(bank.availability || {}).filter(
+                          ([_, count]) => count > 0
+                        );
+                        return availableBloodGroups.length > 0;
+                      }).length} blood banks in your area
+                    </p>
+                    <button
+                      onClick={() => setActiveSection('all-blood-banks')}
+                      className="inline-flex items-center bg-white hover:bg-red-50 text-red-600 font-semibold px-8 py-3 rounded-xl border-2 border-red-200 hover:border-red-300 transition-all duration-200 shadow-sm hover:shadow-md"
+                    >
+                      <span>View All Blood Banks</span>
+                      <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
               )}
             </>
@@ -655,13 +745,34 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
       {showScheduleModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl p-6 max-w-md w-full">
-            <h3 className="text-xl font-bold mb-4">Schedule Donation at {selectedBank?.name}</h3>
+            <h3 className="text-xl font-bold mb-4">Schedule Donation</h3>
             
+            {!selectedBank && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-1 text-gray-700">Blood Bank</label>
+                <select 
+                  className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                  value={selectedBank ? selectedBank.id : ''}
+                  onChange={(e) => {
+                    const bank = bloodBanks.find(b => b.id === e.target.value);
+                    setSelectedBank(bank);
+                  }}
+                >
+                  <option value="">Select a blood bank</option>
+                  {bloodBanks.map(bank => (
+                    <option key={bank.id} value={bank.id}>
+                      {bank.name} - {bank.displayLocation}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="mb-4">
               <label className="block text-sm font-medium mb-1">Date</label>
               <input 
                 type="date" 
-                className="w-full border border-gray-300 rounded-lg p-2"
+                className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-red-500 focus:border-red-500"
                 min={new Date().toISOString().split('T')[0]}
                 value={appointmentDate}
                 onChange={(e) => setAppointmentDate(e.target.value)}
@@ -671,7 +782,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
             <div className="mb-6">
               <label className="block text-sm font-medium mb-1">Time</label>
               <select 
-                className="w-full border border-gray-300 rounded-lg p-2"
+                className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-red-500 focus:border-red-500"
                 value={appointmentTime}
                 onChange={(e) => setAppointmentTime(e.target.value)}
               >
@@ -691,43 +802,21 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
             <div className="flex gap-3">
               <button 
                 className="flex-1 bg-gray-200 hover:bg-gray-300 py-2 rounded-lg transition-colors font-medium"
-                onClick={() => setShowScheduleModal(false)}
+                onClick={() => {
+                  setShowScheduleModal(false);
+                  setSelectedBank(null);
+                }}
               >
                 Cancel
               </button>
               <button 
-                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg transition-colors font-medium"
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg transition-colors font-medium disabled:opacity-50"
                 onClick={handleSubmitAppointment}
-                disabled={!appointmentDate || !appointmentTime}
+                disabled={!selectedBank || !appointmentDate || !appointmentTime}
               >
                 Confirm
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {showBankSelectionModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full">
-            <h3 className="text-xl font-bold mb-4">Select Blood Bank or Hospital</h3>
-            <div className="max-h-64 overflow-y-auto mb-6">
-              {bloodBanks.map((bank) => (
-                <button
-                  key={bank.id}
-                  className="w-full text-left p-2 hover:bg-gray-100 rounded-lg mb-2"
-                  onClick={() => handleSelectBank(bank)}
-                >
-                  {bank.name} - {bank.displayLocation}
-                </button>
-              ))}
-            </div>
-            <button
-              className="w-full bg-gray-200 hover:bg-gray-300 py-2 rounded-lg transition-colors font-medium"
-              onClick={() => setShowBankSelectionModal(false)}
-            >
-              Cancel
-            </button>
           </div>
         </div>
       )}

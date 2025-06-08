@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { auth, db, storage } from '../utils/firebase';
 import { updateProfile } from 'firebase/auth';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { Camera, User, Calendar, MapPin, Phone, Droplet, Clock, X } from 'lucide-react';
 
 const bloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
@@ -14,7 +14,6 @@ export default function ProfileSection({ userProfile, setUserProfile }) {
     name: '',
     email: '',
     phone: '',
-    photo: '',
     bloodType: '',
     dob: '',
     lastDonated: '',
@@ -27,6 +26,9 @@ export default function ProfileSection({ userProfile, setUserProfile }) {
   const [animateIn, setAnimateIn] = useState(false);
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
+  const [isGoogleUser, setIsGoogleUser] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadError, setUploadError] = useState('');
 
   useEffect(() => {
     const fetchUserProfile = async () => {
@@ -37,12 +39,16 @@ export default function ProfileSection({ userProfile, setUserProfile }) {
           return;
         }
 
+        const providerData = currentUser.providerData || [];
+        const googleProvider = providerData.find(provider => provider.providerId === 'google.com');
+        setIsGoogleUser(!!googleProvider);
+
         const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
         let userData = {
           name: currentUser.displayName || 'User',
           email: currentUser.email || 'Not provided',
           phone: currentUser.phoneNumber || 'Not provided',
-          photoURL: currentUser.photoURL || null, // Use photoURL to match userProfile
+          photoURL: currentUser.photoURL || null,
           bloodType: '',
           dob: '',
           lastDonated: '',
@@ -67,7 +73,16 @@ export default function ProfileSection({ userProfile, setUserProfile }) {
 
         console.log('Fetched user data:', userData);
         setUser(userData);
-        setEditData(userData);
+        setEditData({
+          name: userData.name,
+          email: userData.email,
+          phone: userData.phone,
+          bloodType: userData.bloodType,
+          dob: userData.dob,
+          lastDonated: userData.lastDonated,
+          address: userData.address,
+          city: userData.city
+        });
       } catch (err) {
         console.error('Error fetching profile:', err.message, err.code);
       }
@@ -110,7 +125,6 @@ export default function ProfileSection({ userProfile, setUserProfile }) {
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
-      // Validate file size (limit to 2MB)
       if (file.size > 2 * 1024 * 1024) {
         setError('Image size must be less than 2MB.');
         setImageFile(null);
@@ -128,51 +142,89 @@ export default function ProfileSection({ userProfile, setUserProfile }) {
     }
   };
 
-  const uploadImage = async () => {
-    if (!imageFile) return null;
+  const uploadImage = () => {
+    if (!imageFile) return Promise.resolve(null);
 
-    try {
+    return new Promise((resolve, reject) => {
       const currentUser = auth.currentUser;
-      if (!currentUser) throw new Error("No user authenticated");
+      if (!currentUser) {
+        reject(new Error("No user authenticated"));
+        return;
+      }
 
       const fileName = `profile_${Date.now()}_${imageFile.name}`;
       const storageRef = ref(storage, `profileImages/${currentUser.uid}/${fileName}`);
 
       console.log("Uploading image to:", storageRef.fullPath);
 
-      // Add a timeout to prevent hanging
-      const uploadPromise = uploadBytes(storageRef, imageFile);
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Image upload timed out after 10 seconds')), 10000);
-      });
+      const uploadTask = uploadBytesResumable(storageRef, imageFile);
 
-      const snapshot = await Promise.race([uploadPromise, timeoutPromise]);
-      const downloadURL = await getDownloadURL(snapshot.ref);
-      console.log("Image URL retrieved:", downloadURL);
+      uploadTask.on(
+        'state_changed',
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          setUploadProgress(progress);
+          console.log(`Upload progress: ${progress}%`);
+        },
+        (error) => {
+          console.error("Upload failed:", error.message, error.code);
+          let errorMessage = `Upload failed: ${error.message}`;
+          if (error.code === 'storage/canceled') {
+            errorMessage = 'Upload was canceled, possibly due to a timeout or network issue.';
+          } else if (error.code === 'storage/unauthorized') {
+            errorMessage = 'Upload failed: You do not have permission to upload to this location. Check Firebase Storage rules.';
+          } else if (error.message.includes('CORS')) {
+            errorMessage = 'Upload failed due to a CORS issue. Ensure Firebase Storage CORS settings are configured correctly.';
+          }
+          setUploadError(errorMessage);
+          reject(error);
+        },
+        async () => {
+          try {
+            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+            console.log("Image URL retrieved:", downloadURL);
+            setUploadProgress(0);
+            setUploadError('');
+            resolve(downloadURL);
+          } catch (err) {
+            console.error("Failed to get download URL:", err.message, err.code);
+            setUploadError('Failed to retrieve image URL after upload.');
+            reject(err);
+          }
+        }
+      );
 
-      return downloadURL;
-    } catch (error) {
-      console.error("Error in uploadImage function:", error.message, error.code);
-      throw error;
-    }
+      // Timeout after 10 seconds
+      setTimeout(() => {
+        if (uploadTask.snapshot.state === 'running') {
+          uploadTask.cancel();
+          const timeoutError = new Error('Image upload timed out after 10 seconds');
+          setUploadError(timeoutError.message);
+          reject(timeoutError);
+        }
+      }, 10000);
+    });
   };
 
   const handleSaveProfile = async () => {
     setLoading(true);
     setError('');
     setSuccess('');
+    setUploadError('');
 
     try {
       const currentUser = auth.currentUser;
       if (!currentUser) throw new Error('No user logged in');
 
-      // Upload image if one was selected
-      let photoURL = editData.photoURL;
-      if (imageFile) {
-        photoURL = await uploadImage();
+      let photoURL = user.photoURL;
+      try {
+        if (imageFile) {
+          photoURL = await uploadImage();
+        }
+      } catch (uploadErr) {
+        throw new Error(`Failed to upload image: ${uploadErr.message}`);
       }
 
-      // Run Firebase Auth and Firestore updates in parallel
       const authUpdatePromise = updateProfile(currentUser, {
         displayName: editData.name,
         photoURL: photoURL || null,
@@ -199,19 +251,17 @@ export default function ProfileSection({ userProfile, setUserProfile }) {
       await Promise.all([authUpdatePromise, firestoreUpdatePromise]);
       console.log("Profile updates completed");
 
-      // Update local state
       const updatedUserData = {
         ...user,
         ...editData,
-        photoURL: photoURL || editData.photoURL
+        photoURL: photoURL || user.photoURL
       };
       setUser(updatedUserData);
 
-      // Update parent state to propagate changes to other components
       setUserProfile(prev => ({
         ...prev,
         ...editData,
-        photoURL: photoURL || editData.photoURL
+        photoURL: photoURL || user.photoURL
       }));
 
       setSuccess('Profile updated successfully!');
@@ -224,6 +274,7 @@ export default function ProfileSection({ userProfile, setUserProfile }) {
       console.error('Error updating profile:', err);
     } finally {
       setLoading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -238,6 +289,8 @@ export default function ProfileSection({ userProfile, setUserProfile }) {
       setShowEditModal(false);
       setImagePreview(null);
       setImageFile(null);
+      setUploadProgress(0);
+      setUploadError('');
     }, 300);
   };
 
@@ -269,7 +322,7 @@ export default function ProfileSection({ userProfile, setUserProfile }) {
                     alt="Profile" 
                     className="h-24 w-24 rounded-full border-4 border-white object-cover" 
                     onError={(e) => {
-                      console.error('Error loading profile image:', e.id);
+                      console.error('Error loading profile image:', e);
                       e.target.src = 'https://via.placeholder.com/80x80';
                     }}
                   />
@@ -419,6 +472,12 @@ export default function ProfileSection({ userProfile, setUserProfile }) {
                   </div>
                 )}
                 
+                {uploadError && (
+                  <div className="mb-4 p-3 bg-yellow-50 text-yellow-600 rounded-lg text-sm border border-yellow-100">
+                    {uploadError}
+                  </div>
+                )}
+                
                 {success && (
                   <div className="mb-4 p-3 bg-green-50 text-green-600 rounded-lg text-sm border border-green-100">
                     {success}
@@ -442,7 +501,7 @@ export default function ProfileSection({ userProfile, setUserProfile }) {
                             alt="Current Profile" 
                             className="h-16 w-16 rounded-full object-cover border border-gray-300" 
                             onError={(e) => {
-                              console.error('Error loading modal profile image:', e.id);
+                              console.error('Error loading modal profile image:', e);
                               e.target.src = 'https://via.placeholder.com/60x60';
                             }}
                           />
@@ -464,15 +523,25 @@ export default function ProfileSection({ userProfile, setUserProfile }) {
                         </label>
                       </div>
                       <div className="flex-1">
-                        <p className="text-sm text-gray-500">Upload a new photo or use an image URL</p>
-                        <input
-                          type="text"
-                          name="photoURL"
-                          value={editData.photoURL || ''}
-                          onChange={handleChange}
-                          placeholder="Image URL (optional)"
-                          className="mt-1 w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                        />
+                        <p className="text-sm text-gray-500">
+                          Upload a new photo (max 2MB)
+                          {isGoogleUser && user.photoURL && !imagePreview && (
+                            <span> - Currently using Google profile picture</span>
+                          )}
+                        </p>
+                        {uploadProgress > 0 && uploadProgress < 100 && (
+                          <div className="mt-2">
+                            <div className="w-full bg-gray-200 rounded-full h-2">
+                              <div
+                                className="bg-red-600 h-2 rounded-full"
+                                style={{ width: `${uploadProgress}%` }}
+                              ></div>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">
+                              Uploading: {Math.round(uploadProgress)}%
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

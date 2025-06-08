@@ -1,7 +1,100 @@
-import { useState, useEffect } from 'react';
-import { Heart, User, Award, Quote, MessageCircle, Star, Users } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Heart, Award, Quote, MessageCircle, Star, Users } from 'lucide-react';
 import { db, auth } from '../utils/firebase';
 import { collection, addDoc, onSnapshot, query } from 'firebase/firestore';
+import debounce from 'lodash/debounce';
+
+// Reference the public asset directly
+const userIcon = '/assets/user-icon.png';
+
+// Memoized Testimonial Card to prevent unnecessary re-renders
+const TestimonialCard = React.memo(({ testimonial }) => {
+  const [avatarFailed, setAvatarFailed] = useState(false);
+
+  return (
+    <div 
+      className="group bg-white/90 backdrop-blur-sm p-8 rounded-3xl shadow-lg hover:shadow-2xl transition-all duration-500 border border-white/20 hover:border-red-200/50 hover:-translate-y-2 relative overflow-hidden"
+    >
+      {/* Card Background Pattern */}
+      <div className="absolute top-0 right-0 w-32 h-32 opacity-5">
+        <Quote size={128} className="text-red-500" />
+      </div>
+      
+      {/* Quote Icon */}
+      <div className="absolute top-6 left-6 opacity-20 group-hover:opacity-30 transition-opacity">
+        <Quote size={24} className="text-red-400" />
+      </div>
+      
+      {/* User Info */}
+      <div className="flex items-center mb-6 relative z-10">
+        <div className="relative mr-4">
+          <div className="h-14 w-14 rounded-full overflow-hidden bg-gradient-to-r from-red-100 to-rose-100 flex items-center justify-center ring-4 ring-white shadow-lg">
+            <img 
+              src={avatarFailed ? userIcon : (testimonial.avatar || userIcon)} 
+              alt={testimonial.name} 
+              className="h-full w-full object-cover" 
+              onError={(e) => {
+                console.error('Error loading testimonial avatar:', testimonial.avatar);
+                setAvatarFailed(true);
+                e.target.src = userIcon;
+                e.target.onerror = null;
+              }}
+            />
+          </div>
+          <div className="absolute -bottom-1 -right-1 h-6 w-6 bg-green-500 rounded-full border-2 border-white flex items-center justify-center">
+            <Heart size={10} className="text-white" fill="currentColor" />
+          </div>
+        </div>
+        <div className="flex-1">
+          <div className="font-semibold text-lg text-slate-800">{testimonial.name}</div>
+          <div className="flex items-center gap-2 mt-1">
+            {testimonial.bloodType && (
+              <span className="bg-gradient-to-r from-red-500 to-rose-500 text-white px-3 py-1 rounded-full text-xs font-medium shadow-sm">
+                {testimonial.bloodType}
+              </span>
+            )}
+            <div className="flex">
+              {[...Array(5)].map((_, i) => (
+                <Star
+                  key={i}
+                  size={12}
+                  className={i < testimonial.rating ? "text-yellow-400" : "text-gray-300"}
+                  fill={i < testimonial.rating ? "currentColor" : "none"}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      {/* Highlight Badge */}
+      {testimonial.highlight && (
+        <div className="mb-4">
+          <span className="bg-gradient-to-r from-blue-500 to-purple-500 text-white text-xs px-3 py-1.5 rounded-full flex items-center w-fit shadow-sm">
+            <Award size={12} className="mr-1.5" />
+            {testimonial.highlight}
+          </span>
+        </div>
+      )}
+      
+      {/* Message */}
+      <div className="text-slate-700 text-base leading-relaxed mb-6 italic">
+        "{testimonial.message}"
+      </div>
+      
+      {/* Bottom Section */}
+      <div className="flex justify-between items-center pt-4 border-t border-slate-100">
+        <div className="text-xs text-slate-500">
+          {new Date(testimonial.createdAt).toLocaleDateString()}
+        </div>
+        <div className="flex items-center gap-1">
+          <MessageCircle size={14} className="text-red-400" />
+          <span className="text-xs text-slate-500">Verified Story</span>
+        </div>
+      </div>
+    </div>
+  );
+});
 
 export default function TestimonialsSection({ userProfile, isLoggedIn, setShowAuthModal, setAuthMode }) {
   const [testimonials, setTestimonials] = useState([]);
@@ -9,9 +102,18 @@ export default function TestimonialsSection({ userProfile, isLoggedIn, setShowAu
   const [formData, setFormData] = useState({
     message: '',
     highlight: '',
+    rating: 0,
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  const debouncedSetTestimonials = useCallback(
+    debounce((newTestimonials) => {
+      setTestimonials(newTestimonials);
+      console.log('Fetched testimonials:', newTestimonials);
+    }, 500),
+    []
+  );
 
   useEffect(() => {
     const testimonialsRef = collection(db, 'testimonials');
@@ -21,20 +123,27 @@ export default function TestimonialsSection({ userProfile, isLoggedIn, setShowAu
         id: doc.id,
         ...doc.data(),
       }));
-      setTestimonials(testimonialsList);
-      console.log('Fetched testimonials:', testimonialsList);
+      debouncedSetTestimonials(testimonialsList);
     }, (err) => {
       console.error('Detailed error fetching testimonials:', err.message, err.code);
       setError(`Failed to load testimonials: ${err.message} (${err.code}). Please try again.`);
     });
-    return () => unsubscribe();
-  }, []);
+    return () => {
+      unsubscribe();
+      debouncedSetTestimonials.cancel();
+    };
+  }, [debouncedSetTestimonials]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!isLoggedIn) {
       setAuthMode('login');
       setShowAuthModal(true);
+      return;
+    }
+
+    if (formData.rating === 0) {
+      setError("Please provide a rating (1 to 5 stars).");
       return;
     }
 
@@ -47,7 +156,8 @@ export default function TestimonialsSection({ userProfile, isLoggedIn, setShowAu
         bloodType: userProfile?.bloodType || 'Not specified',
         message: formData.message,
         highlight: formData.highlight || 'Donor Story',
-        avatar: userProfile?.photoURL || 'https://via.placeholder.com/60x60',
+        rating: formData.rating,
+        avatar: userProfile?.photoURL || userIcon, // Use Flaticon icon as default
         createdAt: new Date().toISOString(),
         userId: auth.currentUser?.uid || 'anonymous',
       };
@@ -55,7 +165,7 @@ export default function TestimonialsSection({ userProfile, isLoggedIn, setShowAu
       console.log('Submitting testimonial:', testimonialData);
       const docRef = await addDoc(collection(db, 'testimonials'), testimonialData);
       console.log('Testimonial added with ID:', docRef.id);
-      setFormData({ message: '', highlight: '' });
+      setFormData({ message: '', highlight: '', rating: 0 });
       setShowForm(false);
       setLoading(false);
     } catch (err) {
@@ -68,6 +178,10 @@ export default function TestimonialsSection({ userProfile, isLoggedIn, setShowAu
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleRatingChange = (rating) => {
+    setFormData(prev => ({ ...prev, rating }));
   };
 
   return (
@@ -127,85 +241,7 @@ export default function TestimonialsSection({ userProfile, isLoggedIn, setShowAu
         {/* Testimonials Grid */}
         <div className="grid lg:grid-cols-3 md:grid-cols-2 gap-8 mb-20">
           {testimonials.length > 0 ? testimonials.map((testimonial, index) => (
-            <div 
-              key={index} 
-              className="group bg-white/90 backdrop-blur-sm p-8 rounded-3xl shadow-lg hover:shadow-2xl transition-all duration-500 border border-white/20 hover:border-red-200/50 hover:-translate-y-2 relative overflow-hidden"
-            >
-              {/* Card Background Pattern */}
-              <div className="absolute top-0 right-0 w-32 h-32 opacity-5">
-                <Quote size={128} className="text-red-500" />
-              </div>
-              
-              {/* Quote Icon */}
-              <div className="absolute top-6 left-6 opacity-20 group-hover:opacity-30 transition-opacity">
-                <Quote size={24} className="text-red-400" />
-              </div>
-              
-              {/* User Info */}
-              <div className="flex items-center mb-6 relative z-10">
-                <div className="relative mr-4">
-                  <div className="h-14 w-14 rounded-full overflow-hidden bg-gradient-to-r from-red-100 to-rose-100 flex items-center justify-center ring-4 ring-white shadow-lg">
-                    {testimonial.avatar ? (
-                      <img 
-                        src={testimonial.avatar} 
-                        alt={testimonial.name} 
-                        className="h-full w-full object-cover" 
-                        onError={(e) => {
-                          console.error('Error loading testimonial avatar:', testimonial.avatar);
-                          e.target.src = 'https://via.placeholder.com/60x60';
-                        }}
-                      />
-                    ) : (
-                      <User size={24} className="text-red-500" />
-                    )}
-                  </div>
-                  <div className="absolute -bottom-1 -right-1 h-6 w-6 bg-green-500 rounded-full border-2 border-white flex items-center justify-center">
-                    <Heart size={10} className="text-white" fill="currentColor" />
-                  </div>
-                </div>
-                <div className="flex-1">
-                  <div className="font-semibold text-lg text-slate-800">{testimonial.name}</div>
-                  <div className="flex items-center gap-2 mt-1">
-                    {testimonial.bloodType && (
-                      <span className="bg-gradient-to-r from-red-500 to-rose-500 text-white px-3 py-1 rounded-full text-xs font-medium shadow-sm">
-                        {testimonial.bloodType}
-                      </span>
-                    )}
-                    <div className="flex">
-                      {[...Array(5)].map((_, i) => (
-                        <Star key={i} size={12} className="text-yellow-400" fill="currentColor" />
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              {/* Highlight Badge */}
-              {testimonial.highlight && (
-                <div className="mb-4">
-                  <span className="bg-gradient-to-r from-blue-500 to-purple-500 text-white text-xs px-3 py-1.5 rounded-full flex items-center w-fit shadow-sm">
-                    <Award size={12} className="mr-1.5" />
-                    {testimonial.highlight}
-                  </span>
-                </div>
-              )}
-              
-              {/* Message */}
-              <div className="text-slate-700 text-base leading-relaxed mb-6 italic">
-                "{testimonial.message}"
-              </div>
-              
-              {/* Bottom Section */}
-              <div className="flex justify-between items-center pt-4 border-t border-slate-100">
-                <div className="text-xs text-slate-500">
-                  {new Date(testimonial.createdAt).toLocaleDateString()}
-                </div>
-                <div className="flex items-center gap-1">
-                  <MessageCircle size={14} className="text-red-400" />
-                  <span className="text-xs text-slate-500">Verified Story</span>
-                </div>
-              </div>
-            </div>
+            <TestimonialCard key={testimonial.id} testimonial={testimonial} />
           )) : (
             <div className="col-span-full text-center py-20">
               <div className="mb-6">
@@ -236,6 +272,13 @@ export default function TestimonialsSection({ userProfile, isLoggedIn, setShowAu
               <div className="absolute inset-0 bg-gradient-to-r from-rose-500 to-red-500 transform scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-300"></div>
             </button>
           </div>
+        </div>
+
+        {/* Attribution */}
+        <div className="text-center text-xs text-gray-500 mt-8">
+          <a href="https://www.flaticon.com/free-icons/user" title="user icons">
+            User icons created by Freepik - Flaticon
+          </a>
         </div>
 
         {/* Modal */}
@@ -273,6 +316,23 @@ export default function TestimonialsSection({ userProfile, isLoggedIn, setShowAu
                       placeholder="Share your experience with Raksetu and how it impacted your life..."
                       required
                     />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-semibold mb-2 text-slate-700">Your Rating</label>
+                    <div className="flex gap-1">
+                      {[...Array(5)].map((_, i) => (
+                        <Star
+                          key={i}
+                          size={24}
+                          className={`cursor-pointer transition-colors ${
+                            i < formData.rating ? "text-yellow-400" : "text-gray-300"
+                          }`}
+                          fill={i < formData.rating ? "currentColor" : "none"}
+                          onClick={() => handleRatingChange(i + 1)}
+                        />
+                      ))}
+                    </div>
                   </div>
                   
                   <div>
