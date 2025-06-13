@@ -9,7 +9,7 @@ export const addEmergencyNotification = async (emergencyRequest) => {
       emergencyRequest.hospital || 'unknown hospital'
     }: ${emergencyRequest.message || 'Click to view details'}`;
     
-    console.log('Creating notification:', notificationMessage);
+    console.log('Creating emergency notification:', notificationMessage);
     const docRef = await addDoc(collection(db, 'notifications'), {
       type: 'emergency',
       message: notificationMessage,
@@ -17,9 +17,10 @@ export const addEmergencyNotification = async (emergencyRequest) => {
       createdAt: serverTimestamp(),
       readBy: []
     });
-    console.log('Notification created with ID:', docRef.id);
+    console.log('Emergency notification created with ID:', docRef.id);
+    return docRef.id;
   } catch (error) {
-    console.error('Error adding notification:', error);
+    console.error('Error adding emergency notification:', error);
     throw error;
   }
 };

@@ -26,6 +26,7 @@ const ErrorBoundary = lazy(() => import('./ErrorBoundary'));
 const ProfileSection = lazy(() => import('./ProfileSection'));
 const AllBloodBanks = lazy(() => import('./AllBloodBanks'));
 const Settings = lazy(() => import('./Settings'));
+const AdminSection = lazy(() => import('./AdminSection')); // Add AdminSection
 
 const bloodTypes = ['All', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
@@ -49,14 +50,14 @@ export default function BloodHub() {
     livesImpacted: 0,
     activeRequests: 0
   });
-  const [recentDonations, setRecentDonations] = useState([]); // Add this state
+  const [recentDonations, setRecentDonations] = useState([]);
 
   const [isUserProfileLoading, setIsUserProfileLoading] = useState(true);
 
   // Callback for handling donation confirmations
   const handleDonationConfirmed = useCallback((donationDetails) => {
-  setRecentDonations((prev) => [...prev, donationDetails]);
-}, []);
+    setRecentDonations((prev) => [...prev, donationDetails]);
+  }, []);
 
   // Memoize functions to prevent re-renders
   const setActiveSectionCallback = useCallback((section) => {
@@ -481,6 +482,13 @@ export default function BloodHub() {
                 isLoggedIn={isLoggedIn}
                 setShowAuthModal={setShowAuthModalCallback}
                 setAuthMode={setAuthModeCallback}
+              />
+            </ErrorBoundary>
+          )}
+          {activeSection === 'admin' && (
+            <ErrorBoundary>
+              <AdminSection
+                setActiveSection={setActiveSectionCallback}
               />
             </ErrorBoundary>
           )}

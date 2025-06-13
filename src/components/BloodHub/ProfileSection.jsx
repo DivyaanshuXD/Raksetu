@@ -29,6 +29,9 @@ export default function ProfileSection({ userProfile, setUserProfile }) {
   const [isGoogleUser, setIsGoogleUser] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState('');
+  // Add privacy settings to state
+  const [shareBloodType, setShareBloodType] = useState(true);
+  const [shareLocation, setShareLocation] = useState(false);
 
   useEffect(() => {
     const fetchUserProfile = async () => {
@@ -67,8 +70,14 @@ export default function ProfileSection({ userProfile, setUserProfile }) {
             dob: firebaseData.dob || userData.dob,
             lastDonated: firebaseData.lastDonated || userData.lastDonated,
             address: firebaseData.address || userData.address,
-            city: firebaseData.city || userData.city
+            city: firebaseData.city || userData.city,
+            // Fetch privacy settings
+            shareBloodType: firebaseData.shareBloodType ?? true,
+            shareLocation: firebaseData.shareLocation ?? false
           };
+          // Update local state for privacy settings
+          setShareBloodType(userData.shareBloodType);
+          setShareLocation(userData.shareLocation);
         }
 
         console.log('Fetched user data:', userData);
@@ -83,13 +92,19 @@ export default function ProfileSection({ userProfile, setUserProfile }) {
           address: userData.address,
           city: userData.city
         });
+
+        // Update userProfile prop with the fetched data, including privacy settings
+        setUserProfile(prev => ({
+          ...prev,
+          ...userData
+        }));
       } catch (err) {
         console.error('Error fetching profile:', err.message, err.code);
       }
     };
 
     fetchUserProfile();
-  }, [userProfile]);
+  }, [setUserProfile]);
 
   useEffect(() => {
     if (showEditModal) {
@@ -243,6 +258,9 @@ export default function ProfileSection({ userProfile, setUserProfile }) {
         address: editData.address,
         city: editData.city,
         updatedAt: new Date().toISOString(),
+        // Preserve privacy settings
+        shareBloodType,
+        shareLocation
       }).catch(err => {
         console.error("Firestore update failed:", err.message, err.code);
         throw new Error("Failed to update user data in database");
@@ -254,14 +272,18 @@ export default function ProfileSection({ userProfile, setUserProfile }) {
       const updatedUserData = {
         ...user,
         ...editData,
-        photoURL: photoURL || user.photoURL
+        photoURL: photoURL || user.photoURL,
+        shareBloodType,
+        shareLocation
       };
       setUser(updatedUserData);
 
       setUserProfile(prev => ({
         ...prev,
         ...editData,
-        photoURL: photoURL || user.photoURL
+        photoURL: photoURL || user.photoURL,
+        shareBloodType,
+        shareLocation
       }));
 
       setSuccess('Profile updated successfully!');
@@ -355,15 +377,17 @@ export default function ProfileSection({ userProfile, setUserProfile }) {
               <div>
                 <h4 className="text-lg font-semibold mb-4 text-gray-700">Blood Donation Details</h4>
                 <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <div className="bg-red-50 p-2 rounded-full text-red-600">
-                      <Droplet size={20} />
+                  {shareBloodType && (
+                    <div className="flex items-center gap-3">
+                      <div className="bg-red-50 p-2 rounded-full text-red-600">
+                        <Droplet size={20} />
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">Blood Type</p>
+                        <p className="font-medium">{user.bloodType || 'Not specified'}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Blood Type</p>
-                      <p className="font-medium">{user.bloodType || 'Not specified'}</p>
-                    </div>
-                  </div>
+                  )}
                   
                   <div className="flex items-center gap-3">
                     <div className="bg-red-50 p-2 rounded-full text-red-600">
@@ -389,15 +413,17 @@ export default function ProfileSection({ userProfile, setUserProfile }) {
                       </div>
                     </div>
                     
-                    <div className="flex items-center gap-3">
-                      <div className="bg-red-50 p-2 rounded-full text-red-600">
-                        <MapPin size={20} />
+                    {shareLocation && (
+                      <div className="flex items-center gap-3">
+                        <div className="bg-red-50 p-2 rounded-full text-red-600">
+                          <MapPin size={20} />
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-500">Location</p>
+                          <p className="font-medium">{user.city || 'Not specified'}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-sm text-gray-500">Location</p>
-                        <p className="font-medium">{user.city || 'Not specified'}</p>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               </div>

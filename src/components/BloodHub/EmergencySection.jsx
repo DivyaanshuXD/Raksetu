@@ -635,6 +635,7 @@ export default function EmergencySection({ setShowEmergencyModal, getUrgencyColo
                 <Droplet size={14} className="text-red-600" />
               </div>
               <span>{bloodTypeFilter === 'All' ? 'All Blood Types' : `Blood Type: ${bloodTypeFilter}`}</span>
+              
             </div>
             <ChevronDown
               size={16}

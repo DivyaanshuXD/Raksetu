@@ -15,13 +15,13 @@ import {
   AlertTriangle,
   Search,
   Shield,
-  Trash // Add Trash icon
+  Trash,
+  ShieldAlert // Add ShieldAlert icon for Admin
 } from 'lucide-react';
 import { signOut } from 'firebase/auth';
-import { auth } from '../utils/firebase';
+import { auth, db } from '../utils/firebase';
 import { listenForNotifications } from '../utils/notifications';
-import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
-import { db } from '../utils/firebase';
+import { doc, updateDoc, arrayUnion, getDoc } from 'firebase/firestore';
 
 // Custom hooks for better state management
 const useClickOutside = (refs, handler) => {
@@ -186,10 +186,50 @@ export default function Header({
   
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [emergencyAlerts, setEmergencyAlerts] = useState(true); // State for emergencyAlerts setting
   
   const scrolled = useScrolled(10);
   const notificationRef = useRef(null);
   const profileMenuRef = useRef(null);
+
+  // Check if the logged-in user is the admin
+  const isAdmin = userProfile?.email === 'makrostake@gmail.com'; // Replace with your actual email
+
+  // Fetch the user's emergencyAlerts setting
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const user = auth.currentUser;
+        if (!user) {
+          console.log('No authenticated user found, defaulting emergencyAlerts to true');
+          setEmergencyAlerts(true);
+          return;
+        }
+
+        console.log('Fetching settings for user:', user.uid);
+        const userDocRef = doc(db, 'users', user.uid);
+        const userDoc = await getDoc(userDocRef);
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          const fetchedEmergencyAlerts = userData.emergencyAlerts ?? true;
+          setEmergencyAlerts(fetchedEmergencyAlerts);
+          console.log('Fetched emergencyAlerts setting:', fetchedEmergencyAlerts);
+        } else {
+          console.warn('User document not found, defaulting emergencyAlerts to true');
+          setEmergencyAlerts(true);
+        }
+      } catch (err) {
+        console.error('Error fetching settings:', err);
+        setEmergencyAlerts(true); // Default to true if there's an error
+      }
+    };
+
+    if (isLoggedIn) {
+      fetchSettings();
+    } else {
+      setEmergencyAlerts(true); // Default for non-logged-in users
+    }
+  }, [isLoggedIn]);
 
   // Enhanced click outside handling
   useClickOutside(
@@ -197,29 +237,40 @@ export default function Header({
     useCallback(() => setShowDropdowns({ notifications: false, profile: false }), [])
   );
 
-  // Listen for notifications in real-time
-useEffect(() => {
-  let unsubscribe;
-  console.log('Setting up notifications listener');
-  unsubscribe = listenForNotifications((newNotifications) => {
-    console.log('Received notifications:', newNotifications);
-    setNotifications(newNotifications);
-    // Calculate unread count based on login status
-    if (isLoggedIn && auth.currentUser?.uid) {
-      const unread = newNotifications.filter(
-        (notif) => !notif.readBy?.includes(auth.currentUser.uid)
-      ).length;
-      console.log('Unread notifications count (logged in):', unread);
-      setUnreadCount(unread);
-    } else {
-      // For unauthenticated users, treat all notifications as unread
-      const unread = newNotifications.length;
-      console.log('Unread notifications count (not logged in):', unread);
-      setUnreadCount(unread);
-    }
-  });
-  return () => unsubscribe && unsubscribe();
-}, []); // Remove isLoggedIn dependency
+  // Listen for notifications in real-time and filter based on emergencyAlerts
+  useEffect(() => {
+    let unsubscribe;
+    console.log('Setting up notifications listener');
+    unsubscribe = listenForNotifications((newNotifications) => {
+      console.log('Received notifications:', newNotifications);
+      
+      // Filter notifications: only include emergency notifications if emergencyAlerts is true
+      const filteredNotifications = newNotifications.filter(notification => {
+        if (notification.type === 'emergency') {
+          return emergencyAlerts; // Only include if emergencyAlerts is true
+        }
+        return false; // Ignore other notification types (dysfunctional as requested)
+      });
+      
+      console.log('Filtered notifications:', filteredNotifications);
+      setNotifications(filteredNotifications);
+      
+      // Calculate unread count based on login status
+      if (isLoggedIn && auth.currentUser?.uid) {
+        const unread = filteredNotifications.filter(
+          (notif) => !notif.readBy?.includes(auth.currentUser.uid)
+        ).length;
+        console.log('Unread notifications count (logged in):', unread);
+        setUnreadCount(unread);
+      } else {
+        // For unauthenticated users, treat all filtered notifications as unread
+        const unread = filteredNotifications.length;
+        console.log('Unread notifications count (not logged in):', unread);
+        setUnreadCount(unread);
+      }
+    });
+    return () => unsubscribe && unsubscribe();
+  }, [isLoggedIn, emergencyAlerts]); // Add emergencyAlerts as a dependency
 
   // Navigation configuration with icons and enhanced UX
   const navigationItems = useMemo(() => [
@@ -267,90 +318,90 @@ useEffect(() => {
   }, []);
 
   // Handle clicking a notification
-const handleNotificationClick = useCallback(async (notification) => {
-  // Navigate to the emergency section for all users
-  setActiveSection('emergency');
-  setShowDropdowns(prev => ({ ...prev, notifications: false }));
-  requestAnimationFrame(() => {
-    setTimeout(() => {
-      const element = document.querySelector('#emergency');
-      element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 150);
-  });
+  const handleNotificationClick = useCallback(async (notification) => {
+    // Navigate to the emergency section for all users
+    setActiveSection('emergency');
+    setShowDropdowns(prev => ({ ...prev, notifications: false }));
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const element = document.querySelector('#emergency');
+        element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 150);
+    });
 
-  // Mark as read only if user is logged in
-  if (isLoggedIn && auth.currentUser) {
-    try {
-      const notificationRef = doc(db, 'notifications', notification.id);
-      await updateDoc(notificationRef, {
-        readBy: arrayUnion(auth.currentUser.uid)
-      });
-      console.log('Notification marked as read:', notification.id);
-    } catch (error) {
-      console.error('Error marking notification as read:', error);
+    // Mark as read only if user is logged in
+    if (isLoggedIn && auth.currentUser) {
+      try {
+        const notificationRef = doc(db, 'notifications', notification.id);
+        await updateDoc(notificationRef, {
+          readBy: arrayUnion(auth.currentUser.uid)
+        });
+        console.log('Notification marked as read:', notification.id);
+      } catch (error) {
+        console.error('Error marking notification as read:', error);
+      }
+    } else {
+      console.log('User not logged in, skipping mark as read');
     }
-  } else {
-    console.log('User not logged in, skipping mark as read');
-  }
-}, [setActiveSection, isLoggedIn]);
+  }, [setActiveSection, isLoggedIn]);
 
   // Mark all notifications as read
-const handleMarkAllRead = useCallback(async () => {
-  if (!isLoggedIn || !auth.currentUser) {
-    console.log('User not logged in, cannot mark notifications as read');
-    return;
-  }
-
-  const unreadNotifications = notifications.filter(
-    (notif) => !notif.readBy?.includes(auth.currentUser.uid)
-  );
-
-  if (unreadNotifications.length === 0) {
-    console.log('No unread notifications to mark as read');
-    return;
-  }
-
-  try {
-    for (const notif of unreadNotifications) {
-      const notificationRef = doc(db, 'notifications', notif.id);
-      await updateDoc(notificationRef, {
-        readBy: arrayUnion(auth.currentUser.uid)
-      });
-    }
-    console.log('All notifications marked as read');
-  } catch (error) {
-    console.error('Error marking notifications as read:', error);
-  }
-}, [notifications, isLoggedIn]);
-
-// Clear all notifications for the current user by marking them as read
-const handleClearNotifications = useCallback(async () => {
-  if (!isLoggedIn || !auth.currentUser) {
-    console.log('User not logged in, cannot clear notifications');
-    return;
-  }
-
-  try {
-    const notificationsToClear = notifications.filter(
-      (notif) => !notif.readBy?.includes(auth.currentUser.uid)
-    );
-
-    if (notificationsToClear.length === 0) {
-      console.log('No notifications to clear');
+  const handleMarkAllRead = useCallback(async () => {
+    if (!isLoggedIn || !auth.currentUser) {
+      console.log('User not logged in, cannot mark notifications as read');
       return;
     }
 
-    for (const notif of notificationsToClear) {
-      const notificationRef = doc(db, 'notifications', notif.id);
-      await updateDoc(notificationRef, {
-        readBy: arrayUnion(auth.currentUser.uid)
-      });
+    const unreadNotifications = notifications.filter(
+      (notif) => !notif.readBy?.includes(auth.currentUser.uid)
+    );
+
+    if (unreadNotifications.length === 0) {
+      console.log('No unread notifications to mark as read');
+      return;
     }
-    console.log('All notifications cleared for user:', auth.currentUser.uid);
-  } catch (error) {
-    console.error('Error clearing notifications:', error);
-  }
-}, [notifications, isLoggedIn]);
+
+    try {
+      for (const notif of unreadNotifications) {
+        const notificationRef = doc(db, 'notifications', notif.id);
+        await updateDoc(notificationRef, {
+          readBy: arrayUnion(auth.currentUser.uid)
+        });
+      }
+      console.log('All notifications marked as read');
+    } catch (error) {
+      console.error('Error marking notifications as read:', error);
+    }
+  }, [notifications, isLoggedIn]);
+
+  // Clear all notifications for the current user by marking them as read
+  const handleClearNotifications = useCallback(async () => {
+    if (!isLoggedIn || !auth.currentUser) {
+      console.log('User not logged in, cannot clear notifications');
+      return;
+    }
+
+    try {
+      const notificationsToClear = notifications.filter(
+        (notif) => !notif.readBy?.includes(auth.currentUser.uid)
+      );
+
+      if (notificationsToClear.length === 0) {
+        console.log('No notifications to clear');
+        return;
+      }
+
+      for (const notif of notificationsToClear) {
+        const notificationRef = doc(db, 'notifications', notif.id);
+        await updateDoc(notificationRef, {
+          readBy: arrayUnion(auth.currentUser.uid)
+        });
+      }
+      console.log('All notifications cleared for user:', auth.currentUser.uid);
+    } catch (error) {
+      console.error('Error clearing notifications:', error);
+    }
+  }, [notifications, isLoggedIn]);
 
   return (
     <header className={`
@@ -414,70 +465,70 @@ const handleClearNotifications = useCallback(async () => {
                   {showDropdowns.notifications && (
                     <div className="absolute right-0 mt-3 w-80 bg-white/95 backdrop-blur-md border border-red-100 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in slide-in-from-top-2 duration-300">
                       <div className="p-4 bg-gradient-to-r from-red-50 to-white border-b border-red-100">
-  <div className="flex justify-between items-center">
-    <h4 className="font-semibold text-gray-800 flex items-center">
-      <Bell size={16} className="mr-2 text-red-600" />
-      Notifications
-    </h4>
-    <div className="flex items-center space-x-2">
-      {unreadCount > 0 && (
-        <button 
-          className="text-xs text-red-600 hover:text-red-800 font-medium px-2 py-1 rounded-md hover:bg-red-50 transition-colors"
-          onClick={handleMarkAllRead}
-        >
-          Mark all read
-        </button>
-      )}
-      {isLoggedIn && auth.currentUser && unreadCount > 0 && (
-        <button 
-          className="text-xs text-red-600 hover:text-red-800 font-medium px-2 py-1 rounded-md hover:bg-red-50 transition-colors"
-          onClick={handleClearNotifications}
-          aria-label="Clear all notifications"
-        >
-          <Trash size={16} />
-        </button>
-      )}
-    </div>
-  </div>
-</div>
+                        <div className="flex justify-between items-center">
+                          <h4 className="font-semibold text-gray-800 flex items-center">
+                            <Bell size={16} className="mr-2 text-red-600" />
+                            Notifications
+                          </h4>
+                          <div className="flex items-center space-x-2">
+                            {unreadCount > 0 && (
+                              <button 
+                                className="text-xs text-red-600 hover:text-red-800 font-medium px-2 py-1 rounded-md hover:bg-red-50 transition-colors"
+                                onClick={handleMarkAllRead}
+                              >
+                                Mark all read
+                              </button>
+                            )}
+                            {isLoggedIn && auth.currentUser && unreadCount > 0 && (
+                              <button 
+                                className="text-xs text-red-600 hover:text-red-800 font-medium px-2 py-1 rounded-md hover:bg-red-50 transition-colors"
+                                onClick={handleClearNotifications}
+                                aria-label="Clear all notifications"
+                              >
+                                <Trash size={16} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                       <div className="max-h-80 overflow-y-auto">
-  {(() => {
-    // Filter notifications: show only unread for logged-in users, all for others
-    const visibleNotifications = isLoggedIn && auth.currentUser
-      ? notifications.filter((notif) => !notif.readBy?.includes(auth.currentUser.uid))
-      : notifications;
+                        {(() => {
+                          // Filter notifications: show only unread for logged-in users, all for others
+                          const visibleNotifications = isLoggedIn && auth.currentUser
+                            ? notifications.filter((notif) => !notif.readBy?.includes(auth.currentUser.uid))
+                            : notifications;
 
-    if (visibleNotifications.length > 0) {
-      return visibleNotifications.map((notification) => (
-        <button
-          key={notification.id}
-          className="w-full flex items-start p-4 text-left text-sm border-b border-red-50 transition-all duration-200 bg-red-50 text-gray-800 font-medium hover:bg-red-100 hover:text-red-700"
-          onClick={() => handleNotificationClick(notification)}
-        >
-          <AlertTriangle size={16} className="mr-3 mt-0.5 flex-shrink-0 text-red-500" />
-          <div>
-            <p>{notification.message}</p>
-            <p className="text-xs text-gray-400 mt-1">
-              {notification.createdAt?.toDate().toLocaleString()}
-            </p>
-          </div>
-        </button>
-      ));
-    }
+                          if (visibleNotifications.length > 0) {
+                            return visibleNotifications.map((notification) => (
+                              <button
+                                key={notification.id}
+                                className="w-full flex items-start p-4 text-left text-sm border-b border-red-50 transition-all duration-200 bg-red-50 text-gray-800 font-medium hover:bg-red-100 hover:text-red-700"
+                                onClick={() => handleNotificationClick(notification)}
+                              >
+                                <AlertTriangle size={16} className="mr-3 mt-0.5 flex-shrink-0 text-red-500" />
+                                <div>
+                                  <p>{notification.message}</p>
+                                  <p className="text-xs text-gray-400 mt-1">
+                                    {notification.createdAt?.toDate().toLocaleString()}
+                                  </p>
+                                </div>
+                              </button>
+                            ));
+                          }
 
-    return (
-      <div className="flex items-center justify-center h-32 text-center p-4">
-        <div>
-          <div className="h-12 w-12 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-3">
-            <Bell size={20} className="text-red-300" />
-          </div>
-          <p className="text-sm text-gray-500">No new notifications</p>
-          <p className="text-xs text-gray-400 mt-1">We'll notify you when something happens</p>
-        </div>
-      </div>
-    );
-  })()}
-</div>
+                          return (
+                            <div className="flex items-center justify-center h-32 text-center p-4">
+                              <div>
+                                <div className="h-12 w-12 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                                  <Bell size={20} className="text-red-300" />
+                                </div>
+                                <p className="text-sm text-gray-500">No new notifications</p>
+                                <p className="text-xs text-gray-400 mt-1">We'll notify you when something happens</p>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -542,7 +593,15 @@ const handleClearNotifications = useCallback(async () => {
                               setActiveSection('settings');
                               setShowDropdowns(prev => ({ ...prev, profile: false }));
                             }
-                          }
+                          },
+                          ...(isAdmin ? [{
+                            icon: <ShieldAlert size={16} />,
+                            label: 'Admin',
+                            action: () => {
+                              setActiveSection('admin');
+                              setShowDropdowns(prev => ({ ...prev, profile: false }));
+                            }
+                          }] : [])
                         ].map((item, index) => (
                           <button
                             key={index}
@@ -656,6 +715,15 @@ const handleClearNotifications = useCallback(async () => {
                   >
                     Settings
                   </MobileNavLink>
+                  {isAdmin && (
+                    <MobileNavLink 
+                      onClick={() => handleNavClick('admin')}
+                      icon={<ShieldAlert size={18} />}
+                      active={activeSection === 'admin'}
+                    >
+                      Admin
+                    </MobileNavLink>
+                  )}
                 </div>
 
                 {/* Sign Out Button */}

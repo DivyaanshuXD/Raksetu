@@ -6,7 +6,7 @@ import {
   GoogleAuthProvider,
   signInWithPopup
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, query, collection, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../utils/firebase';
 
 const bloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
@@ -70,6 +70,13 @@ export default function AuthModal({ show, setShow, authMode, setAuthMode, setIsL
         setIsLoggedIn(true);
         setShow(false);
       } else {
+        // Check if email already exists before creating a new user
+        const emailQuery = query(collection(db, 'users'), where('email', '==', formData.email));
+        const emailSnapshot = await getDocs(emailQuery);
+        if (!emailSnapshot.empty) {
+          throw new Error('auth/email-already-in-use');
+        }
+
         const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
         const user = userCredential.user;
 
@@ -121,7 +128,22 @@ export default function AuthModal({ show, setShow, authMode, setAuthMode, setIsL
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
       console.log('Google Sign-In successful for user:', user.uid);
-      
+
+      // Check if a user with this email already exists
+      const emailQuery = query(collection(db, 'users'), where('email', '==', user.email));
+      const emailSnapshot = await getDocs(emailQuery);
+
+      if (!emailSnapshot.empty) {
+        // Email already exists, prompt user to log in
+        console.log('User with email already exists:', user.email);
+        setError('This email is already registered. Please sign in instead.');
+        await auth.signOut(); // Sign out the new user to prevent unwanted login
+        setAuthMode('login');
+        setLoading(false);
+        setIsGoogleSignInInProgress(false);
+        return;
+      }
+
       const userDoc = await getDoc(doc(db, 'users', user.uid));
       
       if (!userDoc.exists()) {
@@ -130,7 +152,7 @@ export default function AuthModal({ show, setShow, authMode, setAuthMode, setIsL
           email: user.email,
           bloodType: '',
           phone: user.phoneNumber || '',
-          photoURL: user.photoURL || '', // photoURL is optional
+          photoURL: user.photoURL || '',
           createdAt: new Date().toISOString()
         });
         console.log('User document created for new user:', user.uid);
