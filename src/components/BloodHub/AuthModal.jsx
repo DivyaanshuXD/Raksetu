@@ -130,19 +130,7 @@ export default function AuthModal({ show, setShow, authMode, setAuthMode, setIsL
       console.log('Google Sign-In successful for user:', user.uid);
 
       // Check if a user with this email already exists
-      const emailQuery = query(collection(db, 'users'), where('email', '==', user.email));
-      const emailSnapshot = await getDocs(emailQuery);
-
-      if (!emailSnapshot.empty) {
-        // Email already exists, prompt user to log in
-        console.log('User with email already exists:', user.email);
-        setError('This email is already registered. Please sign in instead.');
-        await auth.signOut(); // Sign out the new user to prevent unwanted login
-        setAuthMode('login');
-        setLoading(false);
-        setIsGoogleSignInInProgress(false);
-        return;
-      }
+      
 
       const userDoc = await getDoc(doc(db, 'users', user.uid));
       
@@ -165,7 +153,11 @@ export default function AuthModal({ show, setShow, authMode, setAuthMode, setIsL
       }
     } catch (error) {
       console.error("Google Sign-In error:", error.message, error.code);
-      setError('Failed to sign in with Google. Please try again.');
+      if (error.code === 'auth/account-exists-with-different-credential') {
+  setError('This email is already registered with a different sign-in method. Please sign in using that method and link your Google account.');
+} else {
+  setError('Failed to sign in with Google: ' + error.message);
+}
     } finally {
       setLoading(false);
       setIsGoogleSignInInProgress(false);
