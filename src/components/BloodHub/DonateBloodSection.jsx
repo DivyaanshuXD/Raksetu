@@ -5,6 +5,7 @@ import { collection, addDoc, serverTimestamp, doc, updateDoc, increment, getDoc,
 import { db, auth } from '../utils/firebase';
 import { calculateDistance } from '../utils/geolocation';
 import SuccessModal from './SuccessModal';
+import DatePicker from '../common/DatePicker';
 import axios from 'axios';
 import { Link } from 'react-router-dom'; // For navigation to the new page
 
@@ -878,12 +879,12 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
 
             <div className="mb-4">
               <label className="block text-sm font-medium mb-1">Date</label>
-              <input 
-                type="date" 
-                className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                min={new Date().toISOString().split('T')[0]}
+              <DatePicker
                 value={appointmentDate}
                 onChange={(e) => setAppointmentDate(e.target.value)}
+                minDate={new Date()}
+                placeholder="Select appointment date"
+                className="w-full"
               />
             </div>
             

@@ -46,7 +46,15 @@ export default function PWAInstallButton() {
   const handleClick = async () => {
     if (!deferredPrompt) {
       console.warn('⚠️ [PWA Button] No install prompt available');
-      alert('App installation is not available right now. Make sure you are using HTTPS and a supported browser (Chrome, Edge, Samsung Internet).');
+      // Show helpful message to user
+      const message = window.matchMedia('(display-mode: standalone)').matches
+        ? 'App is already installed! 🎉'
+        : 'To install Raksetu:\n\n' +
+          '1. Make sure you\'re using Chrome, Edge, or Samsung Internet\n' +
+          '2. Visit the site using HTTPS\n' +
+          '3. Look for the install icon in your browser\'s address bar\n\n' +
+          'The install button will activate automatically when available.';
+      alert(message);
       return;
     }
 
@@ -64,8 +72,8 @@ export default function PWAInstallButton() {
     return null;
   }
 
-  // Don't show button if install prompt not available (show anyway for visibility)
-  // Changed: Always show button, but show tooltip about availability
+  // Always show button - let users click it to get installation help
+  // Removed: Don't disable button when prompt unavailable
 
   return (
     <div className="relative">
@@ -78,10 +86,9 @@ export default function PWAInstallButton() {
           transition-all duration-300 shadow-sm hover:shadow-md
           ${deferredPrompt 
             ? 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white' 
-            : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+            : 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white opacity-90'
           }
         `}
-        disabled={!deferredPrompt}
         aria-label="Install Raksetu App"
       >
         <Smartphone size={18} />
@@ -100,18 +107,17 @@ export default function PWAInstallButton() {
             </>
           ) : (
             <>
-              <p className="font-semibold mb-1">⚠️ Not Available</p>
+              <p className="font-semibold mb-1">💡 Installation Guide</p>
               <p className="text-gray-300">
-                App install requires HTTPS and a supported browser. 
-                {!window.matchMedia('(display-mode: standalone)').matches && 
-                  ' The popup will appear automatically when available.'}
+                Click for instructions on how to install the app on your device.
+                Browser install prompt will appear automatically when ready.
               </p>
             </>
           )}
         </div>
       )}
 
-      {/* Mobile button (always visible) */}
+      {/* Mobile button (always enabled) */}
       <button
         onClick={handleClick}
         className={`
@@ -119,10 +125,9 @@ export default function PWAInstallButton() {
           transition-all duration-300
           ${deferredPrompt 
             ? 'bg-blue-600 text-white hover:bg-blue-700' 
-            : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+            : 'bg-blue-500 text-white hover:bg-blue-600 opacity-90'
           }
         `}
-        disabled={!deferredPrompt}
         aria-label="Install Raksetu App"
       >
         <Download size={16} />

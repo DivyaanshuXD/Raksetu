@@ -91,6 +91,47 @@ export default function BloodHub() {
     setActiveSection(section);
     // Save to sessionStorage for page refresh persistence
     sessionStorage.setItem('activeSection', section);
+    
+    // Push state to browser history for back button support
+    window.history.pushState({ section }, '', `#${section}`);
+  }, []);
+
+  // Handle browser back/forward button
+  useEffect(() => {
+    // Set initial history state
+    const currentSection = activeSection || 'home';
+    window.history.replaceState({ section: currentSection }, '', `#${currentSection}`);
+
+    const handlePopState = (event) => {
+      if (event.state && event.state.section) {
+        setActiveSection(event.state.section);
+        sessionStorage.setItem('activeSection', event.state.section);
+      } else {
+        // If no state, check hash
+        const hash = window.location.hash.slice(1);
+        if (hash) {
+          setActiveSection(hash);
+          sessionStorage.setItem('activeSection', hash);
+        } else {
+          // Default to home if no hash
+          setActiveSection('home');
+          sessionStorage.setItem('activeSection', 'home');
+        }
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
+    // Also handle initial hash on load
+    const initialHash = window.location.hash.slice(1);
+    if (initialHash && initialHash !== activeSection) {
+      setActiveSection(initialHash);
+      sessionStorage.setItem('activeSection', initialHash);
+    }
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
   }, []);
 
   const setShowEmergencyModalCallback = useCallback((value) => {

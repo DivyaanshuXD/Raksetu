@@ -12,10 +12,11 @@ import {
 } from 'firebase/firestore';
 import { db } from '../components/utils/firebase';
 import { checkAndUpdateChallenges } from './challengesService';
+import { calculateDonationPoints } from '../utils/gamification';
 
 /**
  * Mark a donation as completed
- * Updates donation status, emergency status, and user stats
+ * Updates donation status, emergency status, user stats, and awards impact points
  * @param {string} donationId - Donation document ID
  * @param {string} userId - User ID
  * @returns {Promise<void>}
@@ -46,19 +47,45 @@ export const completeDonation = async (donationId, userId) => {
       throw new Error('This donation is already marked as completed');
     }
 
-    // Update donation status to completed
+    // Calculate impact points based on donation details
+    const pointsData = calculateDonationPoints({
+      urgency: donationData.urgency,
+      bloodType: donationData.bloodTypeRequested || donationData.userBloodType,
+      distance: donationData.distance,
+      responseTime: donationData.responseTime,
+      isEmergency: true,
+      completedAt: new Date()
+    });
+
+    const totalPoints = pointsData.total;
+
+    console.log('✅ Calculated impact points:', {
+      donationId,
+      points: totalPoints,
+      breakdown: pointsData.breakdown
+    });
+
+    // Update donation status to completed with points
     await updateDoc(donationRef, {
       status: 'completed',
       completedAt: serverTimestamp(),
+      impactPoints: totalPoints,
+      pointsBreakdown: pointsData.breakdown,
       updatedAt: serverTimestamp()
     });
 
-    // Update user stats - increment total donations
+    // Update user stats - increment total donations and impact points
     const userRef = doc(db, 'users', userId);
     await updateDoc(userRef, {
       totalDonations: increment(1),
+      impactPoints: increment(totalPoints),
       lastDonationDate: serverTimestamp(),
       updatedAt: serverTimestamp()
+    });
+
+    console.log('✅ User stats updated:', {
+      userId,
+      pointsAwarded: totalPoints
     });
 
     // Update challenge progress automatically
@@ -107,12 +134,14 @@ export const completeDonation = async (donationId, userId) => {
     console.log('✅ Donation marked as completed:', {
       donationId,
       userId,
-      emergencyId: donationData.emergencyId
+      emergencyId: donationData.emergencyId,
+      pointsAwarded: totalPoints
     });
 
     return {
       success: true,
-      message: 'Thank you for saving a life! Your donation has been recorded.'
+      message: `🎉 Thank you for saving a life! You earned ${totalPoints} impact points.`,
+      pointsAwarded: totalPoints
     };
   } catch (error) {
     console.error('Error completing donation:', error);

@@ -77,30 +77,133 @@ export function validateEmail(email) {
 }
 
 /**
- * Validate and sanitize phone number
- * @param {string} phone - Phone number
- * @returns {Object} { isValid: boolean, sanitized: string, formatted: string }
+ * Validate and sanitize phone number (international support with STRICT regex)
+ * @param {string} phone - Phone number with country code (e.g., +911234567890)
+ * @returns {Object} { isValid: boolean, sanitized: string, formatted: string, countryCode: string }
  */
 export function validatePhone(phone) {
   if (!phone || typeof phone !== 'string') {
-    return { isValid: false, sanitized: '', formatted: '' };
+    return { isValid: false, sanitized: '', formatted: '', countryCode: '' };
   }
 
-  // Remove all non-digit characters
-  const digitsOnly = phone.replace(/\D/g, '');
+  // Remove all non-digit characters except leading +
+  const cleanPhone = phone.replace(/[^\d+]/g, '');
   
-  // Indian phone number: 10 digits
-  const isValid = digitsOnly.length === 10;
+  // Country-specific regex patterns (STRICT - exact length only)
+  const countryPatterns = {
+    // India: +91 followed by exactly 10 digits
+    '91': {
+      regex: /^\+?91(\d{10})$/,
+      length: 10,
+      format: (n) => `+91 ${n.slice(0, 5)} ${n.slice(5)}`,
+      name: 'India'
+    },
+    // USA/Canada: +1 followed by exactly 10 digits
+    '1': {
+      regex: /^\+?1(\d{10})$/,
+      length: 10,
+      format: (n) => `+1 (${n.slice(0, 3)}) ${n.slice(3, 6)}-${n.slice(6)}`,
+      name: 'USA/Canada'
+    },
+    // UK: +44 followed by exactly 10 digits
+    '44': {
+      regex: /^\+?44(\d{10})$/,
+      length: 10,
+      format: (n) => `+44 ${n.slice(0, 4)} ${n.slice(4)}`,
+      name: 'UK'
+    },
+    // UAE: +971 followed by exactly 9 digits
+    '971': {
+      regex: /^\+?971(\d{9})$/,
+      length: 9,
+      format: (n) => `+971 ${n.slice(0, 2)} ${n.slice(2)}`,
+      name: 'UAE'
+    },
+    // Singapore: +65 followed by exactly 8 digits
+    '65': {
+      regex: /^\+?65(\d{8})$/,
+      length: 8,
+      format: (n) => `+65 ${n.slice(0, 4)} ${n.slice(4)}`,
+      name: 'Singapore'
+    },
+    // Australia: +61 followed by exactly 9 digits
+    '61': {
+      regex: /^\+?61(\d{9})$/,
+      length: 9,
+      format: (n) => `+61 ${n.slice(0, 3)} ${n.slice(3)}`,
+      name: 'Australia'
+    },
+    // Japan: +81 followed by exactly 10 digits
+    '81': {
+      regex: /^\+?81(\d{10})$/,
+      length: 10,
+      format: (n) => `+81 ${n.slice(0, 3)} ${n.slice(3)}`,
+      name: 'Japan'
+    },
+    // China: +86 followed by exactly 11 digits
+    '86': {
+      regex: /^\+?86(\d{11})$/,
+      length: 11,
+      format: (n) => `+86 ${n.slice(0, 3)} ${n.slice(3)}`,
+      name: 'China'
+    },
+    // France: +33 followed by exactly 9 digits
+    '33': {
+      regex: /^\+?33(\d{9})$/,
+      length: 9,
+      format: (n) => `+33 ${n.slice(0, 1)} ${n.slice(1)}`,
+      name: 'France'
+    },
+    // Germany: +49 followed by exactly 10 digits
+    '49': {
+      regex: /^\+?49(\d{10})$/,
+      length: 10,
+      format: (n) => `+49 ${n.slice(0, 3)} ${n.slice(3)}`,
+      name: 'Germany'
+    }
+  };
+
+  // Try to match against each country pattern
+  let isValid = false;
+  let countryCode = '';
+  let number = '';
+  let matchedPattern = null;
+
+  // First, try to detect country code from the beginning
+  for (const [code, pattern] of Object.entries(countryPatterns)) {
+    const match = cleanPhone.match(pattern.regex);
+    if (match) {
+      isValid = true;
+      countryCode = code;
+      number = match[1]; // Captured group is the number without country code
+      matchedPattern = pattern;
+      break;
+    }
+  }
+
+  // If no country code detected, assume India and validate
+  if (!isValid && !cleanPhone.startsWith('+')) {
+    const indiaPattern = countryPatterns['91'];
+    // Try with implicit +91
+    const withCode = '+91' + cleanPhone;
+    const match = withCode.match(indiaPattern.regex);
+    if (match) {
+      isValid = true;
+      countryCode = '91';
+      number = match[1];
+      matchedPattern = indiaPattern;
+    }
+  }
   
-  // Format: +91 XXXXX XXXXX
-  const formatted = isValid 
-    ? `+91 ${digitsOnly.slice(0, 5)} ${digitsOnly.slice(5)}`
-    : digitsOnly;
+  const formatted = isValid && matchedPattern
+    ? matchedPattern.format(number)
+    : cleanPhone;
 
   return {
     isValid,
-    sanitized: digitsOnly,
-    formatted
+    sanitized: number,
+    formatted,
+    countryCode: `+${countryCode}`
   };
 }
 

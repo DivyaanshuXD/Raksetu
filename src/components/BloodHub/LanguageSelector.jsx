@@ -42,43 +42,109 @@ const LanguageSelector = () => {
   // Detect current language from Google Translate
   useEffect(() => {
     const detectLanguage = () => {
-      // Check for Google Translate's language cookie
+      // Method 1: Check Google Translate's language cookie
       const match = document.cookie.match(/googtrans=\/[^\/]*\/([^;]*)/);
       if (match && match[1]) {
         setCurrentLanguage(match[1]);
+        return;
       }
+
+      // Method 2: Check localStorage backup
+      try {
+        const stored = localStorage.getItem('preferredLanguage');
+        if (stored && INDIAN_LANGUAGES.some(lang => lang.code === stored)) {
+          setCurrentLanguage(stored);
+          return;
+        }
+      } catch (e) {
+        console.warn('Could not read language preference:', e);
+      }
+
+      // Method 3: Check HTML lang attribute
+      const htmlLang = document.documentElement.getAttribute('lang');
+      if (htmlLang) {
+        const langCode = htmlLang.split('-')[0]; // Handle cases like 'en-US'
+        if (INDIAN_LANGUAGES.some(lang => lang.code === langCode)) {
+          setCurrentLanguage(langCode);
+          return;
+        }
+      }
+
+      // Default to English
+      setCurrentLanguage('en');
     };
 
     detectLanguage();
     
-    // Listen for language changes
+    // Listen for language changes (DOM mutations)
     const observer = new MutationObserver(detectLanguage);
     observer.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ['lang', 'class']
     });
 
-    return () => observer.disconnect();
+    // Listen for cookie changes (via custom event or polling)
+    const cookieCheckInterval = setInterval(detectLanguage, 1000);
+
+    return () => {
+      observer.disconnect();
+      clearInterval(cookieCheckInterval);
+    };
   }, []);
 
   const changeLanguage = (languageCode) => {
-    // Set Google Translate cookie
-    const domain = window.location.hostname;
-    document.cookie = `googtrans=/en/${languageCode}; path=/; domain=${domain}`;
-    document.cookie = `googtrans=/en/${languageCode}; path=/`;
+    // Close dropdown immediately for better UX
+    setIsOpen(false);
+    setCurrentLanguage(languageCode);
     
-    // Trigger Google Translate
+    // Clear any existing Google Translate cookies first
+    const domain = window.location.hostname;
+    const cookieOptions = [`path=/`, `path=/; domain=${domain}`, `path=/; domain=.${domain}`];
+    
+    // Remove old cookies
+    cookieOptions.forEach(opt => {
+      document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; ${opt}`;
+    });
+    
+    // Set new language cookies with multiple domain variations
+    const cookieValue = `/en/${languageCode}`;
+    cookieOptions.forEach(opt => {
+      document.cookie = `googtrans=${cookieValue}; max-age=31536000; ${opt}`;
+    });
+    
+    // Store preference in localStorage as backup
+    try {
+      localStorage.setItem('preferredLanguage', languageCode);
+    } catch (e) {
+      console.warn('Could not save language preference:', e);
+    }
+
+    // Method 1: Try to trigger Google Translate via select element
     const selectElement = document.querySelector('.goog-te-combo');
     if (selectElement) {
       selectElement.value = languageCode;
-      selectElement.dispatchEvent(new Event('change'));
+      // Trigger multiple events to ensure Google Translate responds
+      const events = ['change', 'input', 'click'];
+      events.forEach(eventType => {
+        const event = new Event(eventType, { bubbles: true, cancelable: true });
+        selectElement.dispatchEvent(event);
+      });
+      
+      // Give Google Translate time to process
+      setTimeout(() => {
+        // If the page language didn't change, try reloading
+        const htmlLang = document.documentElement.getAttribute('lang');
+        if (htmlLang && !htmlLang.includes(languageCode) && languageCode !== 'en') {
+          window.location.reload();
+        }
+      }, 1000);
     } else {
-      // Fallback: reload page with language parameter
-      window.location.reload();
+      // Method 2: If select not found, reload with cookie set
+      // Wait a bit for cookies to be set, then reload
+      setTimeout(() => {
+        window.location.reload();
+      }, 100);
     }
-
-    setCurrentLanguage(languageCode);
-    setIsOpen(false);
   };
 
   const getCurrentLanguageData = () => {

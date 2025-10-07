@@ -6,6 +6,7 @@ import { collection, onSnapshot, addDoc, query, where, deleteDoc, doc, updateDoc
 import { getAuth } from 'firebase/auth';
 import { generatePDFCertificate, generateAnnualReport } from '../../services/pdfExportService';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import DatePicker from '../common/DatePicker';
 
 // Error Boundary Component
 class ErrorBoundary extends Component {
@@ -1353,12 +1354,12 @@ export default function TrackDonationsSection({ onDonationConfirmed, isLoggedIn,
 
                   <div>
                     <label className="block text-sm font-medium mb-1 text-gray-700">Date</label>
-                    <input
-                      type="date"
-                      className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                      min={new Date().toISOString().split('T')[0]}
+                    <DatePicker
                       value={appointmentDate}
                       onChange={(e) => setAppointmentDate(e.target.value)}
+                      minDate={new Date()}
+                      placeholder="Select appointment date"
+                      className="w-full"
                     />
                   </div>
 

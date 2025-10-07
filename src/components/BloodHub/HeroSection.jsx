@@ -28,9 +28,9 @@ const HeroSection = memo(({ setActiveSection, setShowEmergencyModal, emergencyRe
 
       {/* Main Content */}
       <div className="container mx-auto px-3 sm:px-4 md:px-6 relative z-10 max-w-7xl">
-        <div className="grid md:grid-cols-2 gap-6 sm:gap-8 md:gap-10 items-center">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 md:gap-10 items-center">
           {/* Left Column - Hero Text */}
-          <div className="space-y-5 md:space-y-6 text-white">
+          <div className="space-y-5 md:space-y-6 text-white order-1">
             <div className="inline-flex items-center bg-red-900/50 backdrop-blur-sm rounded-full py-1 px-3 md:py-2 md:px-4 mb-2">
               <Droplet size={14} className="text-red-400 mr-1 md:mr-2" />
               <span className="text-xs md:text-sm font-medium">India's Premier Blood Donation Network</span>
@@ -106,14 +106,14 @@ const HeroSection = memo(({ setActiveSection, setShowEmergencyModal, emergencyRe
           </div>
           
           {/* Right Column - Emergency Alerts */}
-          <div className="mt-8 sm:mt-10 md:mt-0">
-            <div className="relative">
+          <div className="order-2 mt-8 md:mt-0 w-full">
+            <div className="relative w-full max-w-lg mx-auto md:max-w-none">
               {/* Decorative Elements */}
               <div className="absolute -top-6 -left-6 md:-top-10 md:-left-10 w-16 md:w-20 h-16 md:h-20 bg-red-500/30 rounded-full blur-xl"></div>
               <div className="absolute -bottom-6 -right-6 md:-bottom-10 md:-right-10 w-20 md:w-32 h-20 md:h-32 bg-red-600/20 rounded-full blur-xl"></div>
               
               {/* Alert Card */}
-              <div className="bg-white rounded-xl md:rounded-2xl shadow-2xl overflow-hidden relative z-10">
+              <div className="bg-white rounded-xl md:rounded-2xl shadow-2xl overflow-hidden relative z-10 w-full">
                 {/* Alert Header */}
                 <div className="bg-gradient-to-r from-red-600 to-red-700 px-4 md:px-6 py-3 md:py-4">
                   <div className="flex items-center justify-between">
@@ -132,15 +132,15 @@ const HeroSection = memo(({ setActiveSection, setShowEmergencyModal, emergencyRe
                 </div>
                 
                 {/* Alert Content */}
-                <div className="p-4 sm:p-5 md:p-8">
-                  <div className="space-y-4 sm:space-y-5 md:space-y-6 mb-5 sm:mb-6 md:mb-8">
+                <div className="p-4 sm:p-5 md:p-8 w-full overflow-hidden">
+                  <div className="space-y-4 sm:space-y-5 md:space-y-6 mb-5 sm:mb-6 md:mb-8 w-full">
                     {topEmergencies.map((emergency, index) => (
-                      <div key={emergency.id} className="w-full">
+                      <div key={emergency.id} className="w-full overflow-hidden">
                         <EmergencyCard
                           emergency={emergency}
                           onClick={() => setActiveSection('emergency')}
                           compact={true}
-                          className="w-full"
+                          className="w-full max-w-full"
                         />
                         {index < 2 && 
                           <div className="border-b border-gray-200 my-3 sm:my-4 md:my-5"></div>

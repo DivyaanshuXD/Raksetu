@@ -41,6 +41,7 @@ import RewardSuccessModal from './RewardSuccessModal';
 import ShippingFormModal from './ShippingFormModal';
 import PartnerApplicationModal from './PartnerApplicationModal';
 import PartnershipSuccessModal from './PartnershipSuccessModal';
+import ConfirmEventModal from './ConfirmEventModal';
 
 export default function CommunitySection({ userProfile, setShowAuthModal, isLoggedIn }) {
   const [activeTab, setActiveTab] = useState('participate'); // participate, host, partner
@@ -66,6 +67,10 @@ export default function CommunitySection({ userProfile, setShowAuthModal, isLogg
   const [redeemedReward, setRedeemedReward] = useState(null);
   const [showShippingForm, setShowShippingForm] = useState(false);
   const [pendingMerchOrder, setPendingMerchOrder] = useState(null);
+  const [showConfirmEventModal, setShowConfirmEventModal] = useState(false);
+  const [eventToConfirm, setEventToConfirm] = useState(null);
+  const [hasPriorityAccess, setHasPriorityAccess] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false);
 
   // Fetch events and user points
   const fetchData = async () => {
@@ -247,21 +252,38 @@ export default function CommunitySection({ userProfile, setShowAuthModal, isLogg
       // Check if user has priority access
       const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
       const userData = userDoc.data();
-      const hasPriorityAccess = !!(userData?.priorityAccess?.active && 
+      const priorityAccess = !!(userData?.priorityAccess?.active && 
         userData?.priorityAccess?.expiresAt?.toDate() > new Date());
 
       // Check if event is full (unless user has priority access)
       const currentParticipants = event.participants || 0;
       const maxCapacity = event.capacity || 100;
       
-      if (!hasPriorityAccess && currentParticipants >= maxCapacity) {
+      if (!priorityAccess && currentParticipants >= maxCapacity) {
         alert('Sorry, this event is full! Redeem "Priority Registration" reward to skip waitlists.');
         return;
       }
 
+      // Show confirmation modal first
+      setEventToConfirm(event);
+      setHasPriorityAccess(priorityAccess);
+      setShowConfirmEventModal(true);
+
+    } catch (error) {
+      console.error('Error checking event registration:', error);
+      alert('An error occurred. Please try again.');
+    }
+  };
+
+  // Function to actually register after confirmation
+  const confirmEventRegistration = async () => {
+    if (!eventToConfirm) return;
+
+    setIsRegistering(true);
+    try {
       // Add registration to Firestore
       await addDoc(collection(db, 'eventRegistrations'), {
-        eventId: event.id,
+        eventId: eventToConfirm.id,
         userId: auth.currentUser.uid,
         userName: userProfile?.name || 'Anonymous',
         userEmail: userProfile?.email || '',
@@ -272,7 +294,7 @@ export default function CommunitySection({ userProfile, setShowAuthModal, isLogg
       });
 
       // Update event participants count
-      const eventRef = doc(db, 'communityEvents', event.id);
+      const eventRef = doc(db, 'communityEvents', eventToConfirm.id);
       await updateDoc(eventRef, {
         participants: increment(1)
       });
@@ -292,13 +314,13 @@ export default function CommunitySection({ userProfile, setShowAuthModal, isLogg
       setUserPoints(prev => prev + pointsAwarded);
 
       // Format event details for display
-      const eventDate = new Date(event.startDate?.toDate()).toLocaleDateString('en-IN', { 
+      const eventDate = new Date(eventToConfirm.startDate?.toDate()).toLocaleDateString('en-IN', { 
         weekday: 'long', 
         year: 'numeric', 
         month: 'long', 
         day: 'numeric' 
       });
-      const eventTime = new Date(event.startDate?.toDate()).toLocaleTimeString('en-IN', {
+      const eventTime = new Date(eventToConfirm.startDate?.toDate()).toLocaleTimeString('en-IN', {
         hour: '2-digit',
         minute: '2-digit'
       });
@@ -309,16 +331,23 @@ export default function CommunitySection({ userProfile, setShowAuthModal, isLogg
 
       // Show success modal with structured details
       setRegistrationDetails({
-        eventTitle: event.title,
-        location: event.location,
-        city: event.city,
+        eventTitle: eventToConfirm.title,
+        location: eventToConfirm.location,
+        city: eventToConfirm.city,
         date: eventDate,
         time: eventTime,
-        organizer: event.organizer,
+        organizer: eventToConfirm.organizer,
         pointsAwarded: pointsAwarded,
         email: userProfile?.email
       });
+      
+      // Close confirmation modal and show success modal
+      setShowConfirmEventModal(false);
       setShowRegistrationSuccess(true);
+      
+      // Refresh events to update participant count
+      fetchData();
+      
     } catch (error) {
       console.error('Error registering for event:', error);
       
@@ -333,6 +362,10 @@ export default function CommunitySection({ userProfile, setShowAuthModal, isLogg
       }
       
       alert(errorMessage);
+    } finally {
+      setIsRegistering(false);
+      setEventToConfirm(null);
+      setHasPriorityAccess(false);
     }
   };
 
@@ -803,6 +836,20 @@ export default function CommunitySection({ userProfile, setShowAuthModal, isLogg
         show={showPartnershipSuccess}
         setShow={setShowPartnershipSuccess}
         details={partnershipDetails}
+      />
+
+      {/* Event Registration Confirmation Modal */}
+      <ConfirmEventModal
+        isOpen={showConfirmEventModal}
+        onClose={() => {
+          setShowConfirmEventModal(false);
+          setEventToConfirm(null);
+          setHasPriorityAccess(false);
+        }}
+        onConfirm={confirmEventRegistration}
+        event={eventToConfirm}
+        hasPriorityAccess={hasPriorityAccess}
+        isProcessing={isRegistering}
       />
 
       {/* Auth Modal */}
