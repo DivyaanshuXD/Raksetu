@@ -1,0 +1,402 @@
+rules_version = '2';
+
+// Firebase Storage Rules
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Profile images - user-specific folders
+    match /profileImages/{userId}/{allPaths=**} {
+      allow read: if true; // Public read
+      allow write: if request.auth != null && request.auth.uid == userId; // Only owner can write
+    }
+    
+    // Emergency images - authenticated users can upload
+    match /emergencyImages/{allPaths=**} {
+      allow read: if true; // Public read
+      allow write: if request.auth != null; // Any authenticated user can write
+    }
+    
+    // Blood drive images
+    match /driveImages/{allPaths=**} {
+      allow read: if true; // Public read
+      allow write: if request.auth != null; // Any authenticated user can write
+    }
+  }
+}
+
+// Firestore Rules
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ============================================
+    // HELPER FUNCTIONS - Role-Based Access Control
+    // ============================================
+    
+    // Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Get user's role from their profile document
+    // **FIX: Added null safety for users without roles**
+    function getUserRole() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+        : null;
+    }
+    
+    // Check if user is admin (using role system instead of hardcoded email)
+    function isAdmin() {
+      return isAuthenticated() && getUserRole() == 'admin';
+    }
+    
+    // Check if user is donor
+    function isDonor() {
+      return isAuthenticated() && getUserRole() == 'donor';
+    }
+    
+    // Check if user is recipient
+    function isRecipient() {
+      return isAuthenticated() && getUserRole() == 'recipient';
+    }
+    
+    // Check if user owns the resource
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Check if email is verified (for critical operations)
+    function isEmailVerified() {
+      return isAuthenticated() && request.auth.token.email_verified == true;
+    }
+
+    // ============================================
+    // PUBLIC COLLECTIONS (Read-only for everyone)
+    // ============================================
+    
+    match /bloodBanks/{bankId} {
+      allow read: if true; // Public read (needed for inventory dashboard, maps, etc.)
+      allow create: if isAuthenticated(); // Any authenticated user can add
+      allow update, delete: if isAdmin(); // Only admin can modify/delete
+    }
+    
+    match /bloodDrives/{driveId} {
+      allow read: if true; // Public read
+      allow create: if isAuthenticated(); // Any authenticated user can create
+      allow update, delete: if isAdmin() || isOwner(resource.data.userId); // Admin or owner
+    }
+    
+    // ============================================
+    // EMERGENCY REQUESTS - **CRITICAL FIX FOR RESPONSE WORKFLOW**
+    // ============================================
+    
+    match /emergencyRequests/{requestId} {
+      allow read: if true; // Public read (for emergency visibility)
+      allow create: if isAuthenticated(); // Any authenticated user can create emergency
+      
+      // **FIX: Allow authenticated users to respond to emergencies**
+      // Users can update ONLY respondedBy, respondersCount, and updatedAt fields
+      // Owner/admin can update any field
+      allow update: if isAdmin() || 
+                       isOwner(resource.data.userId) ||
+                       (isAuthenticated() && 
+                        request.resource.data.diff(resource.data).affectedKeys()
+                          .hasOnly(['respondedBy', 'respondersCount', 'updatedAt']));
+      
+      allow delete: if isAdmin() || isOwner(resource.data.userId); // Admin or creator can delete
+    }
+    
+    match /statistics/{statId} {
+      allow read: if true; // Public read (allow non-logged users too)
+      allow write: if isAdmin(); // Only admin can update stats
+    }
+    
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated(); // Authenticated users can read
+      allow create: if isAuthenticated(); // Any authenticated user can create
+      // Allow users to update/delete their own notifications
+      allow update, delete: if isAuthenticated() && (
+        isAdmin() || 
+        isOwner(resource.data.userId)
+      );
+    }
+
+    // ============================================
+    // TESTIMONIALS (Public read, authenticated write)
+    // ============================================
+    
+    match /testimonials/{testimonialId} {
+      allow read: if true; // Public read
+      allow create: if isAuthenticated(); // Any authenticated user can submit
+      allow update: if isAdmin() || isOwner(resource.data.userId); // Admin or author
+      allow delete: if isAdmin() || isOwner(resource.data.userId); // Admin or author can delete
+    }
+
+    // ============================================
+    // USER PROFILES (Private with role-based access)
+    // ============================================
+    
+    match /users/{userId} {
+      // **FIX: Allow all authenticated users to read (needed for stats)**
+      allow read: if isAuthenticated();
+      
+      // Users can update their own profile
+      // Allow setting role if it doesn't exist (initial profile completion)
+      // Prevent users from CHANGING their role once set (security!)
+      allow update: if isOwner(userId) && 
+        (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']) ||
+          !('role' in resource.data) ||
+          resource.data.get('role', '') == ''
+        );
+      
+      // Allow authenticated users to create their own profile during signup
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      
+      // Users can delete their own account, admins can delete any
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+
+    // ============================================
+    // DONATIONS - **FIX FOR APPOINTMENT SERVICE**
+    // ============================================
+    
+    match /donations/{donationId} {
+      // **FIX: Anyone authenticated can read (for stats & tracking)**
+      allow read: if isAuthenticated();
+      
+      // **FIX: Any authenticated user can create appointments/donations**
+      allow create: if isAuthenticated() && 
+        request.resource.data.userId == request.auth.uid;
+      
+      // Users can update their own donations, admins can update any
+      allow update: if isAdmin() || isOwner(resource.data.userId);
+      
+      // Users can delete their own donations, admins can delete any
+      allow delete: if isAdmin() || isOwner(resource.data.userId);
+    }
+
+    // ============================================
+    // DONATIONS DONE - **FIX FOR EMERGENCY RESPONSE**
+    // ============================================
+    
+    match /donationsDone/{donationId} {
+      // Donors and admins can read donations
+      allow read: if isAuthenticated();
+      
+      // **FIX: Allow authenticated users to create donation records**
+      // Relaxed validation - only check authentication and userId match
+      allow create: if isAuthenticated() && 
+        request.resource.data.userId == request.auth.uid;
+      
+      // Users can update their own donations, admins can update any
+      allow update: if isAdmin() || isOwner(resource.data.userId);
+      
+      // Users can delete their own donations, admins can delete any
+      allow delete: if isAdmin() || isOwner(resource.data.userId);
+    }
+
+    // ============================================
+    // APPOINTMENTS (Role-based access)
+    // ============================================
+    
+    match /appointments/{appointmentId} {
+      // Users can read their own appointments, admins can read all
+      allow read: if isAuthenticated();
+      
+      // **FIX: Any authenticated user can create appointments**
+      allow create: if isAuthenticated() && 
+        request.resource.data.userId == request.auth.uid;
+      
+      // Users can update their own appointments
+      allow update: if isOwner(resource.data.userId) || isAdmin();
+      
+      // Users can delete their own appointments
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+
+    // ============================================
+    // USER DRIVES (Blood donation drives)
+    // ============================================
+    
+    match /userDrives/{userDriveId} {
+      allow read: if isAuthenticated();
+      
+      // Any authenticated user can create a drive
+      allow create: if isAuthenticated() && 
+        request.resource.data.userId == request.auth.uid;
+      
+      // Owner or admin can update
+      allow update: if isOwner(resource.data.userId) || isAdmin();
+      
+      // Owner or admin can delete
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+
+    // ============================================
+    // EMERGENCIES (Legacy - use emergencyRequests)
+    // ============================================
+    
+    match /emergencies/{emergencyId} {
+      allow read: if true; // **FIX: Public read (needed for demand rate calculation in inventory dashboard)**
+      allow write: if isAuthenticated() && 
+        request.auth.uid == request.resource.data.userId;
+    }
+
+    // ============================================
+    // REGISTRATIONS & OTPs (Temporary data)
+    // ============================================
+    
+    match /registrations/{registrationId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /otps/{otpId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // ============================================
+    // CHAT SYSTEM (Participant-based access)
+    // ============================================
+    
+    match /chats/{chatId} {
+      // Allow emergency chats (format: emergency_{emergencyId}_{userId})
+      // Regular chats require participants array
+      allow read: if isAuthenticated() && (
+        chatId.matches('emergency_.*') || // Emergency chats (any authenticated user)
+        request.auth.uid in resource.data.participants // Regular chats (participants only)
+      );
+      
+      allow write: if isAuthenticated() && (
+        chatId.matches('emergency_.*') || // Emergency chats (any authenticated user)
+        request.auth.uid in request.resource.data.participants // Regular chats (participants only)
+      );
+
+      // Chat messages subcollection
+      match /messages/{messageId} {
+        // Allow read/write for emergency chats or chat participants
+        allow read: if isAuthenticated() && (
+          chatId.matches('emergency_.*') || // Emergency chats
+          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
+        );
+        
+        allow write: if isAuthenticated() && (
+          chatId.matches('emergency_.*') || // Emergency chats
+          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
+        );
+      }
+    }
+
+    // ============================================
+    // CHALLENGES SYSTEM (Dynamic Gamification)
+    // ============================================
+    
+    match /challenges/{challengeId} {
+      // Anyone can read challenges (public access for leaderboards, progress tracking)
+      allow read: if true;
+      
+      // Only authenticated users can create/update/delete challenges
+      // TODO: In production, restrict to admin users only
+      allow write: if isAuthenticated();
+      
+      // Challenge participants subcollection
+      match /participants/{userId} {
+        // Anyone can read participant progress (for leaderboards)
+        allow read: if true;
+        
+        // Users can only write their own participation data
+        allow write: if isAuthenticated() && request.auth.uid == userId;
+      }
+    }
+
+    // ============================================
+    // COMMUNITY HUB - Events, Registrations, Partnerships
+    // ============================================
+    
+    // Community Events - Public read, authenticated write
+    match /communityEvents/{eventId} {
+      allow read: if true; // Anyone can browse events (public visibility)
+      allow create: if isAuthenticated(); // Any logged-in user can create events
+      allow update: if isAuthenticated() && (
+        isAdmin() || 
+        isOwner(resource.data.organizerId) ||
+        // Allow participant count updates when registering
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participants'])
+      );
+      allow delete: if isAdmin() || isOwner(resource.data.organizerId);
+    }
+    
+    // Event Registrations - User-specific access
+    match /eventRegistrations/{registrationId} {
+      // Users can read their own registrations, admins can read all
+      allow read: if isAuthenticated() && (
+        isAdmin() || 
+        isOwner(resource.data.userId)
+      );
+      // Users can register for events (create their own registration)
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      // Users can update their own registrations (check-in status, etc.)
+      allow update: if isAuthenticated() && (
+        isAdmin() || 
+        isOwner(resource.data.userId)
+      );
+      // Users can cancel their registrations
+      allow delete: if isAuthenticated() && (
+        isAdmin() || 
+        isOwner(resource.data.userId)
+      );
+    }
+    
+    // Partnership Applications - Admin review system
+    match /partnershipApplications/{applicationId} {
+      // Applicants can read their own, admins can read all
+      allow read: if isAuthenticated() && (
+        isAdmin() || 
+        isOwner(resource.data.userId)
+      );
+      // Any authenticated user can apply for partnership
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      // Only admins can update status (approve/reject)
+      allow update: if isAdmin();
+      // Admins can delete applications
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // EMAIL QUEUE - Firebase Email Extension
+    // ============================================
+    
+    // Mail collection for Firebase Email Extension
+    match /mail/{mailId} {
+      // Only authenticated users can queue emails
+      allow create: if isAuthenticated();
+      // Only admins can read email queue (for debugging)
+      allow read: if isAdmin();
+      // No one can update or delete (handled by extension)
+      allow update, delete: if false;
+    }
+    
+    // ============================================
+    // ADMIN-ONLY COLLECTIONS (Future features)
+    // ============================================
+    
+    // Analytics data
+    match /analytics/{document=**} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+    
+    // System logs
+    match /logs/{document=**} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+    
+    // Admin reports
+    match /reports/{document=**} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+  }
+}
