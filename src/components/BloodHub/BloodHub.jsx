@@ -27,7 +27,6 @@ const EmergencyMapSection = lazy(() => import('./EmergencyMapSection'));
 const Header = lazy(() => import('./Header'));
 const HeroSection = lazy(() => import('./HeroSection'));
 const FeaturesSection = lazy(() => import('./FeaturesSection'));
-const StatsSection = lazy(() => import('./StatsSection'));
 const TestimonialsSection = lazy(() => import('./TestimonialsSection'));
 const DonateBloodSection = lazy(() => import('./DonateBloodSection'));
 const TrackDonationsSection = lazy(() => import('./TrackDonationsSection'));
@@ -323,6 +322,7 @@ export default function BloodHub() {
                 setActiveSection={setActiveSectionCallback}
                 setShowEmergencyModal={setShowEmergencyModalCallback}
                 emergencyRequests={memoizedEmergencyRequests}
+                stats={stats}
               />
               <FeaturesSection />
               <ErrorBoundary>
@@ -335,7 +335,6 @@ export default function BloodHub() {
                   setActiveSection={setActiveSectionCallback}
                 />
               </ErrorBoundary>
-              <StatsSection stats={stats} />
               <TestimonialsSection 
                 userProfile={userProfile}
                 isLoggedIn={isLoggedIn}

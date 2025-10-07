@@ -35,23 +35,18 @@ const TestimonialCard = React.memo(({ testimonial }) => {
 
   return (
     <div 
-      className="group bg-white/95 p-8 rounded-3xl shadow-lg hover:shadow-2xl transition-all duration-500 border border-white/20 hover:border-red-200/50 hover:-translate-y-2 relative overflow-hidden"
-      style={{ willChange: 'transform', transform: 'translateZ(0)' }}
+      className="group bg-white p-5 rounded-2xl shadow-md hover:shadow-lg transition-all duration-300 border border-gray-100 hover:border-red-200/50 hover:-translate-y-1 relative overflow-hidden"
+      style={{ willChange: 'transform' }}
     >
       {/* Card Background Pattern */}
-      <div className="absolute top-0 right-0 w-32 h-32 opacity-5">
-        <Quote size={128} className="text-red-500" />
+      <div className="absolute top-0 right-0 w-24 h-24 opacity-5 pointer-events-none">
+        <Quote size={96} className="text-red-500" />
       </div>
       
-      {/* Quote Icon */}
-      <div className="absolute top-6 left-6 opacity-20 group-hover:opacity-30 transition-opacity">
-        <Quote size={24} className="text-red-400" />
-      </div>
-      
-      {/* User Info */}
-      <div className="flex items-center mb-6 relative z-10">
-        <div className="relative mr-4">
-          <div className="h-14 w-14 rounded-full overflow-hidden bg-gradient-to-r from-red-100 to-rose-100 flex items-center justify-center ring-4 ring-white shadow-lg">
+      {/* User Info - More Compact */}
+      <div className="flex items-center mb-4 relative z-10">
+        <div className="relative mr-3">
+          <div className="h-12 w-12 rounded-full overflow-hidden bg-gradient-to-r from-red-100 to-rose-100 flex items-center justify-center ring-2 ring-white shadow-md">
             {/* Show image if available and not errored */}
             {testimonial.avatar && !showFallback && (
               <img 
@@ -70,20 +65,20 @@ const TestimonialCard = React.memo(({ testimonial }) => {
             )}
             {/* Fallback: Show initials */}
             {showFallback && (
-              <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-red-500 to-rose-600 text-white font-bold text-lg">
+              <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-red-500 to-rose-600 text-white font-bold text-sm">
                 {getInitials(testimonial.name)}
               </div>
             )}
           </div>
-          <div className="absolute -bottom-1 -right-1 h-6 w-6 bg-green-500 rounded-full border-2 border-white flex items-center justify-center">
-            <Heart size={10} className="text-white" fill="currentColor" />
+          <div className="absolute -bottom-0.5 -right-0.5 h-5 w-5 bg-green-500 rounded-full border-2 border-white flex items-center justify-center">
+            <Heart size={8} className="text-white" fill="currentColor" />
           </div>
         </div>
-        <div className="flex-1">
-          <div className="font-semibold text-lg text-slate-800">{testimonial.name}</div>
-          <div className="flex items-center gap-2 mt-1">
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-base text-slate-800 truncate">{testimonial.name}</div>
+          <div className="flex items-center gap-2 mt-0.5">
             {testimonial.bloodType && (
-              <span className="bg-gradient-to-r from-red-500 to-rose-500 text-white px-3 py-1 rounded-full text-xs font-medium shadow-sm">
+              <span className="bg-gradient-to-r from-red-500 to-rose-500 text-white px-2 py-0.5 rounded-full text-xs font-medium">
                 {testimonial.bloodType}
               </span>
             )}
@@ -91,7 +86,7 @@ const TestimonialCard = React.memo(({ testimonial }) => {
               {[...Array(5)].map((_, i) => (
                 <Star
                   key={i}
-                  size={12}
+                  size={10}
                   className={i < testimonial.rating ? "text-yellow-400" : "text-gray-300"}
                   fill={i < testimonial.rating ? "currentColor" : "none"}
                 />
@@ -101,29 +96,33 @@ const TestimonialCard = React.memo(({ testimonial }) => {
         </div>
       </div>
       
-      {/* Highlight Badge */}
+      {/* Highlight Badge - Smaller */}
       {testimonial.highlight && (
-        <div className="mb-4">
-          <span className="bg-gradient-to-r from-blue-500 to-purple-500 text-white text-xs px-3 py-1.5 rounded-full flex items-center w-fit shadow-sm">
-            <Award size={12} className="mr-1.5" />
+        <div className="mb-3">
+          <span className="bg-gradient-to-r from-blue-500 to-purple-500 text-white text-xs px-2 py-1 rounded-full flex items-center w-fit">
+            <Award size={10} className="mr-1" />
             {testimonial.highlight}
           </span>
         </div>
       )}
       
-      {/* Message */}
-      <div className="text-slate-700 text-base leading-relaxed mb-6 italic">
+      {/* Message - Compact */}
+      <div className="text-slate-700 text-sm leading-relaxed mb-4 italic line-clamp-3">
         "{testimonial.message}"
       </div>
       
-      {/* Bottom Section */}
-      <div className="flex justify-between items-center pt-4 border-t border-slate-100">
+      {/* Bottom Section - Smaller */}
+      <div className="flex justify-between items-center pt-3 border-t border-slate-100">
         <div className="text-xs text-slate-500">
-          {new Date(testimonial.createdAt).toLocaleDateString()}
+          {new Date(testimonial.createdAt).toLocaleDateString('en-IN', { 
+            year: 'numeric', 
+            month: 'short', 
+            day: 'numeric' 
+          })}
         </div>
         <div className="flex items-center gap-1">
-          <MessageCircle size={14} className="text-red-400" />
-          <span className="text-xs text-slate-500">Verified Story</span>
+          <MessageCircle size={12} className="text-red-400" />
+          <span className="text-xs text-slate-500">Verified</span>
         </div>
       </div>
     </div>
@@ -219,45 +218,38 @@ export default function TestimonialsSection({ userProfile, isLoggedIn, setShowAu
   };
 
   return (
-    <section className="py-24 bg-gradient-to-br from-slate-50 via-red-50 to-rose-50 relative overflow-hidden">
-      {/* Background Elements */}
-      <div className="absolute inset-0 opacity-30">
-        <div className="absolute top-10 left-10 w-72 h-72 bg-gradient-to-r from-red-200 to-pink-200 rounded-full blur-3xl animate-pulse"></div>
-        <div className="absolute bottom-10 right-10 w-96 h-96 bg-gradient-to-r from-rose-200 to-red-200 rounded-full blur-3xl animate-pulse delay-1000"></div>
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-gradient-to-r from-pink-100 to-red-100 rounded-full opacity-30"></div>
+    <section className="py-16 bg-gradient-to-br from-slate-50 via-red-50 to-rose-50 relative overflow-hidden">
+      {/* Simpler Background - No blur animations for performance */}
+      <div className="absolute inset-0 opacity-20 pointer-events-none">
+        <div className="absolute top-10 left-10 w-48 h-48 bg-red-200 rounded-full"></div>
+        <div className="absolute bottom-10 right-10 w-64 h-64 bg-rose-200 rounded-full"></div>
       </div>
       
-      <div className="container mx-auto px-6 relative z-10">
-        {/* Header Section */}
-        <div className="text-center mb-20">
-          <div className="flex justify-center mb-6">
-            <div className="relative">
-              <div className="h-16 w-16 bg-gradient-to-r from-red-500 to-rose-500 rounded-full flex items-center justify-center shadow-lg">
-                <Heart className="text-white" size={32} fill="currentColor" />
-              </div>
-              <div className="absolute -top-1 -right-1 h-5 w-5 sm:h-6 sm:w-6 bg-gradient-to-r from-yellow-400 to-orange-400 rounded-full flex items-center justify-center">
-                <Star size={10} className="sm:w-3 sm:h-3 text-white" fill="currentColor" />
-              </div>
+      <div className="container mx-auto px-4 sm:px-6 relative z-10 max-w-7xl">
+        {/* Compact Header Section */}
+        <div className="text-center mb-12">
+          <div className="flex justify-center mb-4">
+            <div className="h-12 w-12 bg-gradient-to-r from-red-500 to-rose-500 rounded-full flex items-center justify-center shadow-md">
+              <Heart className="text-white" size={24} fill="currentColor" />
             </div>
           </div>
-          <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold bg-gradient-to-r from-red-600 to-rose-600 bg-clip-text text-transparent mb-6">
+          <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 to-rose-600 bg-clip-text text-transparent mb-3">
             Stories That Inspire
           </h2>
-          <div className="w-24 sm:w-32 h-1.5 bg-gradient-to-r from-red-400 to-rose-400 mx-auto mb-6 sm:mb-8 rounded-full shadow-sm"></div>
-          <p className="text-slate-600 max-w-4xl mx-auto text-base sm:text-lg md:text-xl leading-relaxed px-4">
-            Every drop counts, every story matters. Discover how Raksetu has touched lives through 
-            the generosity of donors and the gratitude of recipients.
+          <div className="w-20 h-1 bg-gradient-to-r from-red-400 to-rose-400 mx-auto mb-4 rounded-full"></div>
+          <p className="text-slate-600 max-w-2xl mx-auto text-sm sm:text-base leading-relaxed px-4">
+            Every drop counts, every story matters. Discover how Raksetu has touched lives.
           </p>
           
-          {/* Stats Section */}
-          <div className="flex justify-center mt-8 sm:mt-12 px-4">
-            <div className="bg-white/90 rounded-2xl px-6 sm:px-8 py-4 shadow-lg border border-white/20">
-              <div className="flex items-center gap-4 sm:gap-8">
+          {/* Compact Stats */}
+          <div className="flex justify-center mt-6">
+            <div className="bg-white/90 rounded-xl px-6 py-3 shadow-md border border-white/20">
+              <div className="flex items-center gap-6">
                 <div className="text-center">
-                  <div className="text-xl sm:text-2xl font-bold text-red-600">{testimonials.length}</div>
-                  <div className="text-xs sm:text-sm text-slate-600">Stories Shared</div>
+                  <div className="text-xl font-bold text-red-600">{testimonials.length}</div>
+                  <div className="text-xs text-slate-600">Stories</div>
                 </div>
-                <div className="w-px h-6 sm:h-8 bg-slate-300"></div>
+                <div className="w-px h-6 bg-slate-300"></div>
                 <div className="text-center">
                   <div className="text-xl sm:text-2xl font-bold text-red-600">4.9</div>
                   <div className="text-xs sm:text-sm text-slate-600">Average Rating</div>

@@ -3,12 +3,19 @@ import { Droplet, AlertTriangle, ChevronRight, Heart, Shield, Clock, Users } fro
 import EmergencyCard from './EmergencyCard';
 import Particles from './Particles';
 
-const HeroSection = memo(({ setActiveSection, setShowEmergencyModal, emergencyRequests }) => {
+const HeroSection = memo(({ setActiveSection, setShowEmergencyModal, emergencyRequests, stats }) => {
   // Memoize top 3 emergencies to prevent recalculation on every render
   const topEmergencies = useMemo(
     () => emergencyRequests.slice(0, 3),
     [emergencyRequests]
   );
+  
+  // Format numbers with commas
+  const formatNumber = (num) => {
+    if (!num) return '0';
+    return num.toLocaleString('en-IN');
+  };
+  
   return (
     <section className="relative pt-8 md:pt-12 pb-12 md:pb-16 overflow-hidden min-h-[90vh] sm:min-h-[85vh] md:min-h-[80vh] lg:min-h-[75vh] flex items-center">
       {/* Particles Background with Black Background */}
@@ -62,7 +69,7 @@ const HeroSection = memo(({ setActiveSection, setShowEmergencyModal, emergencyRe
               </button>
             </div>
             
-            {/* Stats Bar - More compact on mobile */}
+            {/* Stats Bar - Real-time data from Firebase */}
             <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 md:p-4 border border-white/20 mt-5 md:mt-6">
               <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-4 md:gap-4">
                 <div className="flex items-center gap-2 md:gap-3">
@@ -70,7 +77,7 @@ const HeroSection = memo(({ setActiveSection, setShowEmergencyModal, emergencyRe
                     <Users size={16} className="text-red-200" />
                   </div>
                   <div>
-                    <p className="text-lg md:text-xl font-bold">58,000+</p>
+                    <p className="text-lg md:text-xl font-bold">{formatNumber(stats.totalDonors || 0)}+</p>
                     <p className="text-xs text-red-200">Active Donors</p>
                   </div>
                 </div>
@@ -79,7 +86,7 @@ const HeroSection = memo(({ setActiveSection, setShowEmergencyModal, emergencyRe
                     <Heart size={16} className="text-red-200" />
                   </div>
                   <div>
-                    <p className="text-lg md:text-xl font-bold">124K+</p>
+                    <p className="text-lg md:text-xl font-bold">{formatNumber(stats.livesImpacted || 0)}+</p>
                     <p className="text-xs text-red-200">Lives Saved</p>
                   </div>
                 </div>
@@ -97,8 +104,8 @@ const HeroSection = memo(({ setActiveSection, setShowEmergencyModal, emergencyRe
                     <Shield size={16} className="text-red-200" />
                   </div>
                   <div>
-                    <p className="text-lg md:text-xl font-bold">1,230+</p>
-                    <p className="text-xs text-red-200">Hospitals</p>
+                    <p className="text-lg md:text-xl font-bold">{formatNumber(stats.totalBloodBanks || 1230)}+</p>
+                    <p className="text-xs text-red-200">Blood Banks</p>
                   </div>
                 </div>
               </div>

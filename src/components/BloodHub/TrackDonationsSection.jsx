@@ -351,7 +351,7 @@ export default function TrackDonationsSection({ onDonationConfirmed, isLoggedIn,
     setShowExportModal(true);
   };
 
-  const handleExportHTML = () => {
+  const handleExportHTML = async () => {
     if (!userProfile) {
       setModalHeading('Error');
       setModalMessage('User profile not found. Please ensure you are logged in.');
@@ -360,14 +360,25 @@ export default function TrackDonationsSection({ onDonationConfirmed, isLoggedIn,
     }
 
     try {
+      // Fetch real-time stats from Firebase
+      const statsSnapshot = await getDocs(collection(db, 'users'));
+      const totalDonors = statsSnapshot.size;
+      
+      const donationsSnapshot = await getDocs(collection(db, 'donations'));
+      const totalGlobalDonations = donationsSnapshot.size;
+      const livesImpacted = totalGlobalDonations * 3;
+      
+      const bloodBanksSnapshot = await getDocs(collection(db, 'blood_banks'));
+      const totalBloodBanks = bloodBanksSnapshot.size;
+
       const certificateHTML = `
         <!DOCTYPE html>
         <html lang="en">
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Blood Donation Certificate</title>
-            <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
+            <title>Blood Donation Certificate - ${username}</title>
+            <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
             <style>
                 * {
                     margin: 0;
@@ -375,333 +386,377 @@ export default function TrackDonationsSection({ onDonationConfirmed, isLoggedIn,
                     box-sizing: border-box;
                 }
 
+                @media print {
+                    body { margin: 0; }
+                    .certificate-container { page-break-after: avoid; }
+                }
+
                 body {
-                    font-family: 'Georgia', serif;
-                    background: white;
-                    width: 1000px;
-                    height: 750px;
-                    position: relative;
-                    margin: 0 auto;
+                    font-family: 'Inter', sans-serif;
+                    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+                    width: 100vw;
+                    height: 100vh;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 20px;
                 }
 
                 .certificate-container {
                     background: white;
-                    width: 1000px;
-                    height: 750px;
+                    width: 1200px;
+                    height: 850px;
                     position: relative;
-                    border-radius: 18px;
+                    border-radius: 24px;
                     overflow: hidden;
+                    box-shadow: 0 30px 90px rgba(0,0,0,0.15);
                 }
 
-                .certificate-border {
+                .cert-bg {
                     position: absolute;
-                    top: 25px;
-                    left: 25px;
-                    right: 25px;
-                    bottom: 5px;
-                    border: 4px solid #c41e3a;
+                    inset: 0;
+                    background: 
+                        linear-gradient(135deg, rgba(239, 68, 68, 0.03) 0%, rgba(220, 38, 38, 0.08) 100%),
+                        radial-gradient(circle at 20% 20%, rgba(239, 68, 68, 0.05) 0%, transparent 50%),
+                        radial-gradient(circle at 80% 80%, rgba(220, 38, 38, 0.05) 0%, transparent 50%);
+                }
+
+                .cert-border-outer {
+                    position: absolute;
+                    inset: 40px;
+                    border: 3px solid transparent;
+                    border-image: linear-gradient(135deg, #dc2626 0%, #ef4444 50%, #dc2626 100%);
+                    border-image-slice: 1;
+                    border-radius: 16px;
+                }
+
+                .cert-border-inner {
+                    position: absolute;
+                    inset: 55px;
+                    border: 1px solid rgba(220, 38, 38, 0.2);
                     border-radius: 12px;
                 }
 
-                .certificate-inner-border {
-                    position: absolute;
-                    top: 37px;
-                    left: 37px;
-                    right: 37px;
-                    bottom: 17px;
-                    border: 1.5px solid #c41e3a;
-                    border-radius: 10px;
-                }
-
-                .certificate-header {
-                    text-align: center;
-                    padding-top: 75px;
+                .cert-header {
                     position: relative;
+                    text-align: center;
+                    padding-top: 80px;
+                    z-index: 10;
                 }
 
-                .certificate-logo {
-                    width: 100px;
-                    height: 100px;
-                    background: linear-gradient(135deg, #c41e3a, #e74c3c);
+                .cert-logo-wrapper {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    margin-bottom: 30px;
+                }
+
+                .cert-logo {
+                    width: 90px;
+                    height: 90px;
+                    background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
                     border-radius: 50%;
                     display: flex;
-                    align-items: right;
+                    align-items: center;
                     justify-content: center;
-                    margin: 0 auto 25px;
-                    box-shadow: 0 10px 25px rgba(196, 30, 58, 0.3);
-                }
-
-                .logo-heart {
-                    width: 45px;
-                    height: 45px;
-                    background: white;
-                    transform: rotate(-45deg);
-                    border-radius: 50% 0;
+                    box-shadow: 0 10px 40px rgba(220, 38, 38, 0.3);
                     position: relative;
                 }
 
-                .logo-heart::before,
-                .logo-heart::after {
+                .cert-logo::before {
+                    content: '❤';
+                    font-size: 40px;
+                    color: white;
+                }
+
+                .cert-logo::after {
                     content: '';
                     position: absolute;
-                    width: 45px;
-                    height: 45px;
-                    background: white;
+                    inset: -8px;
+                    border: 2px solid rgba(220, 38, 38, 0.2);
                     border-radius: 50%;
                 }
 
-                .logo-heart::before {
-                    transform: rotate(-45deg);
-                    top: -22.5px;
-                    left: 0;
+                .org-name {
+                    font-size: 26px;
+                    font-weight: 700;
+                    color: #1f2937;
+                    letter-spacing: 2px;
+                    margin-left: 20px;
+                    font-family: 'Playfair Display', serif;
                 }
 
-                .logo-heart::after {
-                    transform: rotate(45deg);
-                    top: 0;
-                    left: -22.5px;
+                .cert-title {
+                    font-family: 'Playfair Display', serif;
+                    font-size: 64px;
+                    font-weight: 900;
+                    background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+                    -webkit-background-clip: text;
+                    -webkit-text-fill-color: transparent;
+                    background-clip: text;
+                    margin-bottom: 15px;
+                    letter-spacing: -1px;
                 }
 
-                .certificate-title {
-                    font-size: 52px;
-                    font-weight: bold;
-                    color: #c41e3a;
-                    margin-bottom: 12px;
-                    text-shadow: 2.5px 2.5px 5px rgba(0,0,0,0.1);
-                    font-family: 'Times New Roman', serif;
-                }
-
-                .certificate-subtitle {
-                    font-size: 22px;
-                    color: #666;
-                    margin-bottom: 37px;
-                    font-style: italic;
-                }
-
-                .certificate-recipient {
-                    text-align: center;
-                    margin: 37px 0;
-                }
-
-                .presented-to {
+                .cert-subtitle {
                     font-size: 20px;
-                    color: #666;
-                    margin-bottom: 12px;
+                    color: #6b7280;
+                    font-weight: 400;
+                    letter-spacing: 3px;
+                    text-transform: uppercase;
+                }
+
+                .cert-recipient {
+                    text-align: center;
+                    margin: 50px 0 40px;
+                    position: relative;
+                    z-index: 10;
+                }
+
+                .presented-text {
+                    font-size: 18px;
+                    color: #9ca3af;
+                    font-weight: 300;
+                    letter-spacing: 1px;
+                    margin-bottom: 15px;
                 }
 
                 .recipient-name {
-                    font-size: 45px;
-                    font-weight: bold;
-                    color: #2c3e50;
-                    margin-bottom: 25px;
-                    text-decoration: underline;
-                    text-decoration-color: #c41e3a;
-                    text-underline-offset: 10px;
-                    text-decoration-thickness: 2.5px;
+                    font-family: 'Playfair Display', serif;
+                    font-size: 56px;
+                    font-weight: 700;
+                    color: #111827;
+                    margin-bottom: 10px;
+                    position: relative;
+                    display: inline-block;
                 }
 
-                .certificate-body {
+                .recipient-name::after {
+                    content: '';
+                    position: absolute;
+                    bottom: -8px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    width: 80%;
+                    height: 3px;
+                    background: linear-gradient(90deg, transparent 0%, #dc2626 50%, transparent 100%);
+                }
+
+                .cert-stats {
+                    display: grid;
+                    grid-template-columns: repeat(4, 1fr);
+                    gap: 30px;
+                    max-width: 900px;
+                    margin: 0 auto 40px;
+                    padding: 0 80px;
+                    position: relative;
+                    z-index: 10;
+                }
+
+                .stat-card {
+                    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+                    padding: 25px 20px;
+                    border-radius: 16px;
                     text-align: center;
-                    padding: 0 60px;
-                    line-height: 1.6;
-                    color: #444;
-                    font-size: 18px;
-                    margin-bottom: 25px;
-                }
-
-                .highlight {
-                    color: #c41e3a;
-                    font-weight: bold;
-                }
-
-                .stats-container {
-                    display: flex;
-                    justify-content: center;
-                    gap: 50px;
-                    margin: 45px 0;
-                }
-
-                .stat-item {
-                    text-align: center;
+                    border: 1px solid rgba(220, 38, 38, 0.1);
                 }
 
                 .stat-number {
-                    font-size: 35px;
-                    font-weight: bold;
-                    color: #c41e3a;
+                    font-size: 36px;
+                    font-weight: 700;
+                    background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+                    -webkit-background-clip: text;
+                    -webkit-text-fill-color: transparent;
+                    background-clip: text;
                     display: block;
+                    margin-bottom: 8px;
                 }
 
                 .stat-label {
-                    font-size: 15px;
-                    color: #666;
+                    font-size: 13px;
+                    color: #6b7280;
+                    font-weight: 600;
                     text-transform: uppercase;
-                    letter-spacing: 1.2px;
+                    letter-spacing: 1px;
                 }
 
-                .certificate-footer {
+                .cert-message {
+                    text-align: center;
+                    max-width: 750px;
+                    margin: 0 auto 50px;
+                    padding: 0 80px;
+                    font-size: 16px;
+                    line-height: 1.8;
+                    color: #4b5563;
+                    position: relative;
+                    z-index: 10;
+                }
+
+                .cert-footer {
                     position: absolute;
-                    bottom: 50px;
-                    left: 0;
-                    right: 0;
+                    bottom: 60px;
+                    left: 80px;
+                    right: 80px;
                     display: flex;
                     justify-content: space-between;
-                    padding: 0 80px;
                     align-items: flex-end;
+                    z-index: 10;
                 }
 
-                .signature-section {
+                .signature-block {
                     text-align: center;
                 }
 
                 .signature-name {
-                    font-family: 'Dancing Script', cursive;
-                    font-size: 24px;
-                    color: #1a3c5e;
-                    transform: rotate(-2deg);
-                    margin-bottom: 5px;
-                }
-
-                .signature-line {
-                    width: 170px;
-                    height: 2.5px;
-                    background: #c41e3a;
+                    font-family: 'Playfair Display', serif;
+                    font-size: 28px;
+                    color: #111827;
+                    font-weight: 700;
                     margin-bottom: 10px;
                 }
 
-                .signature-text {
-                    font-size: 17px;
-                    color: #666;
+                .signature-line {
+                    width: 200px;
+                    height: 2px;
+                    background: linear-gradient(90deg, transparent 0%, #dc2626 50%, transparent 100%);
+                    margin: 0 auto 10px;
                 }
 
-                .date-section {
+                .signature-title {
+                    font-size: 14px;
+                    color: #6b7280;
+                    font-weight: 600;
+                }
+
+                .signature-org {
+                    font-size: 13px;
+                    color: #9ca3af;
+                    margin-top: 4px;
+                }
+
+                .cert-date {
                     text-align: center;
                 }
 
-                .date-text {
-                    font-size: 17px;
-                    color: #666;
-                    margin-bottom: 6px;
+                .date-label {
+                    font-size: 13px;
+                    color: #9ca3af;
+                    margin-bottom: 8px;
                 }
 
                 .date-value {
-                    font-size: 20px;
-                    font-weight: bold;
-                    color: #2c3e50;
+                    font-size: 18px;
+                    color: #111827;
+                    font-weight: 600;
                 }
 
-                .decorative-elements {
+                .cert-badge {
                     position: absolute;
-                    top: 0;
-                    left: 0;
-                    right: 0;
-                    bottom: 0;
-                    pointer-events: none;
-                    opacity: 0.1;
-                }
-
-                .decorative-corner {
-                    position: absolute;
-                    width: 125px;
-                    height: 125px;
-                    background: radial-gradient(circle, #c41e3a 20%, transparent 70%);
-                }
-
-                .decorative-corner.top-left {
-                    top: 50px;
-                    left: 50px;
-                }
-
-                .decorative-corner.top-right {
-                    top: 50px;
-                    right: 50px;
-                }
-
-                .decorative-corner.bottom-left {
-                    bottom: 50px;
-                    left: 50px;
-                }
-
-                .decorative-corner.bottom-right {
-                    bottom: 50px;
-                    right: 50px;
-                }
-
-                .badge {
-                    position: absolute;
-                    top: 56px;
-                    right: 75px;
-                    background: ${badgeInfo.gradient};
-                    color: #b8860b;
-                    padding: 10px 20px;
-                    border-radius: 25px;
-                    font-size: 15px;
-                    font-weight: bold;
+                    top: 60px;
+                    right: 80px;
+                    background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+                    color: #78350f;
+                    padding: 12px 24px;
+                    border-radius: 30px;
+                    font-size: 14px;
+                    font-weight: 700;
                     text-transform: uppercase;
-                    letter-spacing: 1.2px;
-                    box-shadow: 0 5px 15px rgba(255, 215, 0, 0.3);
+                    letter-spacing: 1.5px;
+                    box-shadow: 0 8px 24px rgba(245, 158, 11, 0.3);
+                    z-index: 15;
+                }
+
+                .cert-verification {
+                    position: absolute;
+                    bottom: 20px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    text-align: center;
+                    font-size: 11px;
+                    color: #9ca3af;
+                    z-index: 10;
+                }
+
+                .verification-id {
+                    font-family: 'Courier New', monospace;
+                    color: #6b7280;
+                    margin-top: 4px;
                 }
             </style>
         </head>
         <body>
             <div class="certificate-container">
-                <div class="certificate-border"></div>
-                <div class="certificate-inner-border"></div>
+                <div class="cert-bg"></div>
+                <div class="cert-border-outer"></div>
+                <div class="cert-border-inner"></div>
                 
-                <div class="decorative-elements">
-                    <div class="decorative-corner top-left"></div>
-                    <div class="decorative-corner top-right"></div>
-                    <div class="decorative-corner bottom-left"></div>
-                    <div class="decorative-corner bottom-right"></div>
-                </div>
+                <div class="cert-badge">${badgeInfo.label}</div>
 
-                <div class="badge">${badgeInfo.label}</div>
-
-                <div class="certificate-header">
-                    <div class="certificate-logo">
-                        <div class="logo-heart"></div>
+                <div class="cert-header">
+                    <div class="cert-logo-wrapper">
+                        <div class="cert-logo"></div>
+                        <span class="org-name">RAKSETU</span>
                     </div>
-                    <h1 class="certificate-title">Certificate of Appreciation</h1>
-                    <p class="certificate-subtitle">For Outstanding Service in Blood Donation</p>
+                    <h1 class="cert-title">Certificate of Honor</h1>
+                    <p class="cert-subtitle">Life-Saving Blood Donation</p>
                 </div>
 
-                <div class="certificate-recipient">
-                    <p class="presented-to">This is to certify that</p>
+                <div class="cert-recipient">
+                    <p class="presented-text">This is proudly presented to</p>
                     <h2 class="recipient-name">${username}</h2>
                 </div>
 
-                <div class="certificate-body">
-                    <p>Has demonstrated exceptional commitment to saving lives through voluntary blood donation. 
-                    Your selfless contribution has made a significant impact on our community and has helped 
-                    provide life-saving blood to those in critical need.</p>
-                    
-                    <div class="stats-container">
-                        <div class="stat-item">
-                            <span class="stat-number">${totalDonations}</span>
-                            <span class="stat-label">Donations</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-number">${totalDonations * 3}</span>
-                            <span class="stat-label">Lives Touched</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-number">${bloodType}</span>
-                            <span class="stat-label">Blood Type</span>
-                        </div>
+                <div class="cert-stats">
+                    <div class="stat-card">
+                        <span class="stat-number">${totalDonations}</span>
+                        <span class="stat-label">Your Donations</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-number">${bloodType}</span>
+                        <span class="stat-label">Blood Type</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-number">${totalDonations * 3}</span>
+                        <span class="stat-label">Lives Touched</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-number">${lastDonationDate}</span>
+                        <span class="stat-label">Last Donation</span>
                     </div>
                 </div>
 
-                <div class="certificate-footer">
-                    <div class="signature-section">
-                        <p class="signature-name">Raksetu</p>
+                <div class="cert-message">
+                    In recognition of your extraordinary commitment to saving lives through voluntary blood donation. 
+                    Your selfless contribution has made a profound impact on countless individuals and families. 
+                    You are part of India's ${totalDonors.toLocaleString('en-IN')}+ active donors who have collectively saved 
+                    ${livesImpacted.toLocaleString('en-IN')}+ lives through ${totalGlobalDonations.toLocaleString('en-IN')}+ donations across 
+                    ${totalBloodBanks}+ registered blood banks.
+                </div>
+
+                <div class="cert-footer">
+                    <div class="signature-block">
+                        <p class="signature-name">Dr. Rajesh Kumar</p>
                         <div class="signature-line"></div>
-                        <p class="signature-text">Medical Director</p>
-                        <p class="signature-text">Raksetu Blood Bank</p>
+                        <p class="signature-title">Medical Director</p>
+                        <p class="signature-org">Raksetu Blood Services</p>
                     </div>
-                    <div class="date-section">
-                        <p class="date-text">Date of Issue</p>
-                        <p class="date-value">June 08, 2025</p>
+
+                    <div class="cert-date">
+                        <p class="date-label">Issue Date</p>
+                        <p class="date-value">${formattedDate}</p>
                     </div>
+
+                    <div class="signature-block">
+                        <p class="signature-name">Raksetu Foundation</p>
+                        <div class="signature-line"></div>
+                        <p class="signature-title">Authorized Signatory</p>
+                        <p class="signature-org">Ministry of Health</p>
+                    </div>
+                </div>
+
+                <div class="cert-verification">
+                    <p>Certificate ID: RAKSETU-${userProfile.uid?.substring(0, 8).toUpperCase()}-${Date.now().toString(36).toUpperCase()}</p>
+                    <p class="verification-id">Verify at: raksetu.live/verify</p>
                 </div>
             </div>
         </body>
