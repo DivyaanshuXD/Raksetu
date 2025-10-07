@@ -1,89 +1,36 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../utils/firebase';
 import EmergencyRequestModal from './EmergencyRequestModal';
-import { MapPin } from 'lucide-react';
-
-// Mock data for fallback
-const mockEmergencyRequests = [
-  {
-    id: 'mock-1',
-    hospital: 'Apollo Hospital',
-    location: 'Jubilee Hills, Hyderabad',
-    bloodType: 'O-',
-    urgency: 'Critical',
-    units: 3,
-    coordinates: { latitude: 17.4065, longitude: 78.4691 },
-    timestamp: { seconds: Date.now() / 1000 - 120 },
-    distance: 2.3
-  },
-  {
-    id: 'mock-2',
-    hospital: 'NIMS Hospital',
-    location: 'Punjagutta, Hyderabad',
-    bloodType: 'AB+',
-    urgency: 'High',
-    units: 2,
-    coordinates: { latitude: 17.4239, longitude: 78.4738 },
-    timestamp: { seconds: Date.now() / 1000 - 600 },
-    distance: 5.1
-  },
-  {
-    id: 'mock-3',
-    hospital: 'Care Hospital',
-    location: 'Banjara Hills, Hyderabad',
-    bloodType: 'B+',
-    urgency: 'Medium',
-    units: 1,
-    coordinates: { latitude: 17.4126, longitude: 78.4713 },
-    timestamp: { seconds: Date.now() / 1000 - 1200 },
-    distance: 3.8
-  }
-];
-
-const mockBloodBanks = [
-  {
-    id: 'mock-1',
-    name: 'Red Cross Blood Bank',
-    location: 'Secunderabad',
-    coordinates: { latitude: 17.4399, longitude: 78.4983 },
-    distance: 1.2,
-    availability: { 'A+': 15, 'O+': 8, 'B+': 12, 'AB+': 3, 'O-': 2 }
-  },
-  {
-    id: 'mock-2',
-    name: 'Lions Blood Bank',
-    location: 'Himayatnagar',
-    coordinates: { latitude: 17.4062, longitude: 78.4738 },
-    distance: 4.5,
-    availability: { 'A+': 7, 'O+': 20, 'B+': 5, 'AB-': 1, 'A-': 4 }
-  }
-];
+import { 
+  MapPin, Layers, Maximize2, Minimize2, Navigation, 
+  AlertTriangle, Droplet, Phone, Clock, User, MapPinned,
+  Filter, RefreshCw, Heart, Building2, Sliders, Zap
+} from 'lucide-react';
 
 const bloodTypes = ['All', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
-const rareBloodTypes = ['O h', 'AB-', 'A-', 'B-', 'O-'];
 
 // Utility function to calculate distance using Haversine formula (in kilometers)
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 6371; // Earth's radius in km
+  const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
             Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
             Math.sin(dLon / 2) * Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const distance = R * c;
-  return parseFloat(distance.toFixed(1));
+  return parseFloat((R * c).toFixed(1));
 };
 
 // Function to fetch location name using Nominatim API
 const fetchLocationName = async (lat, lng) => {
   try {
     const response = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=10&addressdetails=1`
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=10&addressdetails=1`,
+      { headers: { 'User-Agent': 'RaksetuApp/1.0' } }
     );
     const data = await response.json();
     if (data && data.address) {
@@ -94,650 +41,814 @@ const fetchLocationName = async (lat, lng) => {
     }
     return 'Unknown Location';
   } catch (error) {
-    console.error('Error fetching location name:', error.message);
+    console.error('Error fetching location name:', error);
     return null;
   }
 };
 
-// Custom styled icons with consistent style
-const createCustomIcon = (color, pulse = false, size = 'normal') => {
-  const iconSize = size === 'large' ? [32, 48] : [24, 36];
-  let iconHTML;
+// Professional clean icons - NO GRADIENTS
+const createProfessionalIcon = (type, pulse = false) => {
+  const configs = {
+    emergency: {
+      color: '#ef4444',
+      bgColor: 'rgba(239, 68, 68, 0.15)',
+      icon: '🆘',
+      size: pulse ? 40 : 36
+    },
+    normal: {
+      color: '#ef4444',
+      bgColor: 'rgba(239, 68, 68, 0.15)',
+      icon: '🆘',
+      size: pulse ? 40 : 36
+    },
+    critical: {
+      color: '#dc2626',
+      bgColor: 'rgba(220, 38, 38, 0.2)',
+      icon: '🚨',
+      size: 44
+    },
+    bloodbank: {
+      color: '#3b82f6',
+      bgColor: 'rgba(59, 130, 246, 0.15)',
+      icon: '🏥',
+      size: 36
+    },
+    user: {
+      color: '#10b981',
+      bgColor: 'rgba(16, 185, 129, 0.15)',
+      icon: '📍',
+      size: 40
+    }
+  };
 
-  if (color === 'blue' || color === 'green') {
-    iconHTML = `
-      <div class="relative w-8 h-12">
-        <div class="absolute inset-0 w-8 h-8 top-0 left-0 rounded-full bg-${color}-400/30 animate-ping"></div>
-        <div class="absolute top-0 left-0 w-8 h-8 rounded-full bg-${color}-500 blur-sm opacity-80"></div>
-        <div class="relative top-0 left-0 w-8 h-8 rounded-full bg-gradient-to-br from-${color}-400 to-${color}-700 shadow-lg border-2 border-white/50 flex items-center justify-center">
-          <div class="w-3 h-3 bg-white rotate-45"></div>
-        </div>
-        <div class="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-${color}-700"></div>
+  const config = configs[type.toLowerCase()] || configs.emergency;
+  const iconHTML = `
+    <div style="position: relative; width: ${config.size}px; height: ${config.size}px;">
+      ${pulse ? `<div style="position: absolute; inset: 0; background: ${config.bgColor}; border-radius: 50%; animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>` : ''}
+      <div style="
+        position: relative;
+        width: 100%;
+        height: 100%;
+        background: ${config.color};
+        border-radius: 50%;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        border: 3px solid white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: ${config.size * 0.5}px;
+      ">
+        ${config.icon}
       </div>
-    `;
-  } else {
-    iconHTML = `
-      <div class="relative ${pulse ? 'animate-pulse' : ''}">
-        <div class="absolute inset-0 bg-${color}-500 rounded-full blur-sm opacity-60 ${pulse ? 'animate-ping' : ''}"></div>
-        <div class="relative bg-gradient-to-br from-${color}-400 to-${color}-600 rounded-full shadow-lg border-2 border-white/30 backdrop-blur-sm w-6 h-6 flex items-center justify-center">
-          <div class="w-2 h-2 bg-white rounded-full"></div>
-        </div>
-      </div>
-    `;
-  }
+    </div>
+  `;
 
   return L.divIcon({
     html: iconHTML,
-    className: 'custom-marker',
-    iconSize: iconSize,
-    iconAnchor: [iconSize[0] / 2, iconSize[1]],
-    popupAnchor: [0, -iconSize[1]]
+    className: 'custom-map-marker',
+    iconSize: [config.size, config.size],
+    iconAnchor: [config.size / 2, config.size / 2],
+    popupAnchor: [0, -config.size / 2]
   });
 };
 
-const emergencyIcon = createCustomIcon('red', true);
-const criticalIcon = createCustomIcon('red', true, 'large');
-const bloodBankIcon = createCustomIcon('blue', false);
-const userLocationIcon = createCustomIcon('green', false, 'large');
+const emergencyIcon = createProfessionalIcon('emergency', true);
+const criticalIcon = createProfessionalIcon('critical', true);
+const bloodBankIcon = createProfessionalIcon('bloodbank');
+const userLocationIcon = createProfessionalIcon('user');
 
-// Component to handle map updates
-const MapUpdater = ({ userLocation, filteredEmergencies, viewMode }) => {
+// Component to handle map updates with smooth animations - Optimized with memo
+const MapUpdater = memo(({ userLocation, filteredEmergencies, viewMode, bloodBanks }) => {
   const map = useMap();
 
   useEffect(() => {
-    // Recenter map on user location when it changes
-    map.setView([userLocation.lat, userLocation.lng], 12);
-  }, [map, userLocation]);
+    if (!map || !map.getContainer()) return;
+    const timeoutId = setTimeout(() => {
+      try {
+        map.setView([userLocation.lat, userLocation.lng], 12, {
+          animate: false  // Disable animation to prevent position errors
+        });
+      } catch (error) {
+        console.error('Error setting map view:', error);
+      }
+    }, 100);
+    return () => clearTimeout(timeoutId);
+  }, [map, userLocation.lat, userLocation.lng]);
 
   useEffect(() => {
-    // Adjust map bounds to fit all visible markers
-    const bounds = [];
-    bounds.push([userLocation.lat, userLocation.lng]);
+    if (!map || !map.getContainer()) return;
+    
+    const timeoutId = setTimeout(() => {
+      const bounds = [[userLocation.lat, userLocation.lng]];
 
-    if (viewMode === 'emergencies' || viewMode === 'both') {
-      filteredEmergencies.forEach(emergency => {
-        bounds.push([emergency.coordinates.latitude, emergency.coordinates.longitude]);
-      });
-    }
+      if (viewMode === 'emergencies' || viewMode === 'both') {
+        filteredEmergencies.forEach(emergency => {
+          if (emergency.coordinates) {
+            bounds.push([emergency.coordinates.latitude, emergency.coordinates.longitude]);
+          }
+        });
+      }
 
-    if (bounds.length > 1) {
-      const leafletBounds = L.latLngBounds(bounds);
-      map.fitBounds(leafletBounds, { padding: [50, 50], maxZoom: 14 });
-    }
-  }, [map, userLocation, filteredEmergencies, viewMode]);
+      if (viewMode === 'bloodbanks' || viewMode === 'both') {
+        bloodBanks.forEach(bank => {
+          if (bank.coordinates) {
+            bounds.push([bank.coordinates.latitude, bank.coordinates.longitude]);
+          }
+        });
+      }
+
+      if (bounds.length > 1) {
+        try {
+          // Check if map is still valid before trying to fit bounds
+          if (!map || !map.getContainer()) {
+            console.warn('Map not ready yet, skipping fitBounds');
+            return;
+          }
+          
+          const leafletBounds = L.latLngBounds(bounds);
+          map.fitBounds(leafletBounds, { 
+            padding: [50, 50], 
+            maxZoom: 14,
+            animate: false,  // Disable animation to prevent position errors
+            duration: 0
+          });
+        } catch (error) {
+          console.error('Error fitting bounds:', error);
+        }
+      }
+    }, 300); // Debounce by 300ms
+
+    return () => clearTimeout(timeoutId);
+  }, [map, userLocation.lat, userLocation.lng, filteredEmergencies.length, viewMode, bloodBanks.length]);
 
   return null;
-};
+}, (prevProps, nextProps) => {
+  // Custom comparison to prevent unnecessary rerenders
+  return (
+    prevProps.userLocation.lat === nextProps.userLocation.lat &&
+    prevProps.userLocation.lng === nextProps.userLocation.lng &&
+    prevProps.viewMode === nextProps.viewMode &&
+    prevProps.filteredEmergencies.length === nextProps.filteredEmergencies.length &&
+    prevProps.bloodBanks.length === nextProps.bloodBanks.length
+  );
+});
 
-export default function EmergencyMapSection() {
+const EmergencyMapSection = memo(({ userProfile }) => {
   const [bloodTypeFilter, setBloodTypeFilter] = useState('All');
-  const [viewMode, setViewMode] = useState('emergencies'); // 'emergencies', 'bloodbanks', 'both'
+  const [viewMode, setViewMode] = useState('both');
   const [filteredEmergencies, setFilteredEmergencies] = useState([]);
-  const [bloodBanks, setBloodBanks] = useState(mockBloodBanks);
-  const [selectedEmergency, setSelectedEmergency] = useState(null);
-  const [userLocation, setUserLocation] = useState({ lat: 17.3850, lng: 78.4867 }); // Default: Hyderabad center
+  const [bloodBanks, setBloodBanks] = useState([]);
+  const [userLocation, setUserLocation] = useState({ lat: 17.3850, lng: 78.4867 });
   const [locationName, setLocationName] = useState('Loading location...');
   const [mapStyle, setMapStyle] = useState('default');
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [searchRadius, setSearchRadius] = useState(1500); // Default to 1500 km
+  const [searchRadius, setSearchRadius] = useState(70); // Default 70km
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showReportModal, setShowReportModal] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showRadiusSlider, setShowRadiusSlider] = useState(false);
   const mapRef = useRef(null);
+  const [mapKey, setMapKey] = useState(Date.now());
 
-  // Fetch user's real-time location and location name
+  // Force remount map on component mount to prevent reuse errors
+  useEffect(() => {
+    setMapKey(Date.now());
+  }, []);
+
+  // Fetch user's real-time location
   useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         async (position) => {
           const { latitude, longitude } = position.coords;
           setUserLocation({ lat: latitude, lng: longitude });
-          console.log('User location fetched:', { lat: latitude, lng: longitude });
-
           const name = await fetchLocationName(latitude, longitude);
-          if (name) {
-            setLocationName(name);
-          } else {
-            setLocationName(`Lat: ${latitude.toFixed(4)}, Lng: ${longitude.toFixed(4)}`);
-          }
+          setLocationName(name || `Lat: ${latitude.toFixed(4)}, Lng: ${longitude.toFixed(4)}`);
         },
         (error) => {
-          console.error('Error fetching user location:', error.message);
-          setUserLocation({ lat: 17.3850, lng: 78.4867 });
+          console.error('Error fetching location:', error);
+          // Fallback to default location
           setLocationName('Hyderabad, Telangana, India');
+          setError('Location access denied. Using default location.');
         },
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
     } else {
-      console.error('Geolocation is not supported by this browser.');
+      setError('Geolocation not supported by browser');
       setLocationName('Hyderabad, Telangana, India');
     }
   }, []);
 
-  // Fetch real-time emergency requests from Firestore
+  // Fetch real-time emergency requests
   useEffect(() => {
     setLoading(true);
-    setError(null);
+    const emergenciesRef = collection(db, 'emergencyRequests');
+    const unsubscribe = onSnapshot(
+      emergenciesRef,
+      (snapshot) => {
+        const emergencies = snapshot.docs
+          .map(doc => {
+            const data = doc.data();
+            if (!data.coordinates?.latitude || !data.coordinates?.longitude) return null;
+            
+            const distance = calculateDistance(
+              userLocation.lat,
+              userLocation.lng,
+              data.coordinates.latitude,
+              data.coordinates.longitude
+            );
+            
+            return {
+              id: doc.id,
+              ...data,
+              distance,
+              timestamp: data.timestamp || { seconds: Date.now() / 1000 }
+            };
+          })
+          .filter(Boolean);
 
-    const emergenciesRef = collection(db, 'emergencyRequests'); // Changed to match EmergencySection.jsx collection
-    const unsubscribe = onSnapshot(emergenciesRef, (snapshot) => {
-      const realTimeEmergencies = snapshot.docs.map(doc => {
-        const data = doc.data();
-        if (!data.coordinates || !data.coordinates.latitude || !data.coordinates.longitude) {
-          console.warn(`Emergency ${doc.id} missing coordinates, skipping...`);
-          return null;
-        }
-        const distance = calculateDistance(
-          userLocation.lat,
-          userLocation.lng,
-          data.coordinates.latitude,
-          data.coordinates.longitude
-        );
-        return {
-          id: doc.id,
-          ...data,
-          distance,
-          timestamp: data.timestamp || { seconds: Date.now() / 1000 }
-        };
-      }).filter(emergency => emergency !== null);
+        const filteredByRadius = emergencies.filter(e => e.distance <= searchRadius);
+        const filtered = bloodTypeFilter === 'All'
+          ? filteredByRadius
+          : filteredByRadius.filter(e => e.bloodType === bloodTypeFilter);
 
-      // Combine with mock data as fallback
-      const combinedEmergencies = [...realTimeEmergencies];
-      mockEmergencyRequests.forEach(mock => {
-        if (!combinedEmergencies.some(e => e.id === mock.id)) {
-          const distance = calculateDistance(
-            userLocation.lat,
-            userLocation.lng,
-            mock.coordinates.latitude,
-            mock.coordinates.longitude
-          );
-          combinedEmergencies.push({ ...mock, distance });
-        }
-      });
-
-      // Filter by search radius and blood type
-      const filteredByRadius = combinedEmergencies.filter(e => e.distance <= searchRadius);
-      const filtered = bloodTypeFilter === 'All'
-        ? filteredByRadius
-        : filteredByRadius.filter(e => e.bloodType === bloodTypeFilter);
-
-      setFilteredEmergencies(filtered);
-      setLoading(false);
-      console.log('Emergencies updated:', filtered);
-    }, (error) => {
-      console.error('Error fetching emergencies:', error.message);
-      setError('Failed to load emergency requests. Using fallback data.');
-      const filteredByRadius = mockEmergencyRequests.map(mock => ({
-        ...mock,
-        distance: calculateDistance(
-          userLocation.lat,
-          userLocation.lng,
-          mock.coordinates.latitude,
-          mock.coordinates.longitude
-        )
-      })).filter(e => e.distance <= searchRadius);
-      
-      const filtered = bloodTypeFilter === 'All'
-        ? filteredByRadius
-        : filteredByRadius.filter(e => e.bloodType === bloodTypeFilter);
-      
-      setFilteredEmergencies(filtered);
-      setLoading(false);
-    });
+        setFilteredEmergencies(filtered);
+        setLoading(false);
+        setError(null);
+      },
+      (err) => {
+        console.error('Error fetching emergencies:', err);
+        setError('Failed to load emergency requests');
+        setFilteredEmergencies([]);
+        setLoading(false);
+      }
+    );
 
     return () => unsubscribe();
   }, [userLocation, searchRadius, bloodTypeFilter]);
 
-  // Fetch real-time blood banks from Firestore
+  // Fetch real-time blood banks
   useEffect(() => {
     const bloodBanksRef = collection(db, 'bloodBanks');
-    const unsubscribe = onSnapshot(bloodBanksRef, (snapshot) => {
-      const realTimeBloodBanks = snapshot.docs.map(doc => {
-        const data = doc.data();
-        if (!data.coordinates || !data.coordinates.latitude || !data.coordinates.longitude) {
-          console.warn(`Blood bank ${doc.id} missing coordinates, skipping...`);
-          return null;
-        }
-        const distance = calculateDistance(
-          userLocation.lat,
-          userLocation.lng,
-          data.coordinates.latitude,
-          data.coordinates.longitude
-        );
-        return {
-          id: doc.id,
-          ...data,
-          distance
-        };
-      }).filter(bank => bank !== null);
+    const unsubscribe = onSnapshot(
+      bloodBanksRef,
+      (snapshot) => {
+        const banks = snapshot.docs
+          .map(doc => {
+            const data = doc.data();
+            // Handle both data structures: coordinates object or direct lat/lng
+            const lat = data.coordinates?.latitude || data.latitude;
+            const lng = data.coordinates?.longitude || data.longitude;
+            
+            if (!lat || !lng) {
+              console.warn('Blood bank missing coordinates:', doc.id, data.name);
+              return null;
+            }
+            
+            const distance = calculateDistance(
+              userLocation.lat,
+              userLocation.lng,
+              lat,
+              lng
+            );
+            
+            // Normalize data structure for consistent access
+            return { 
+              id: doc.id, 
+              ...data, 
+              coordinates: { latitude: lat, longitude: lng },
+              latitude: lat,
+              longitude: lng,
+              distance 
+            };
+          })
+          .filter(Boolean)
+          .filter(b => b.distance <= searchRadius);
 
-      const combinedBloodBanks = [...realTimeBloodBanks];
-      mockBloodBanks.forEach(mock => {
-        if (!combinedBloodBanks.some(b => b.id === mock.id)) {
-          const distance = calculateDistance(
-            userLocation.lat,
-            userLocation.lng,
-            mock.coordinates.latitude,
-            mock.coordinates.longitude
-          );
-          combinedBloodBanks.push({ ...mock, distance });
-        }
-      });
-
-      const filteredByRadius = combinedBloodBanks.filter(b => b.distance <= searchRadius);
-      setBloodBanks(filteredByRadius);
-      console.log('Blood banks updated:', filteredByRadius);
-    }, (error) => {
-      console.error('Error fetching blood banks:', error.message);
-      const filteredByRadius = mockBloodBanks.map(mock => ({
-        ...mock,
-        distance: calculateDistance(
-          userLocation.lat,
-          userLocation.lng,
-          mock.coordinates.latitude,
-          mock.coordinates.longitude
-        )
-      })).filter(b => b.distance <= searchRadius);
-      setBloodBanks(filteredByRadius);
-    });
+        console.log(`✅ Loaded ${banks.length} blood banks within ${searchRadius}km`);
+        setBloodBanks(banks);
+      },
+      (err) => console.error('Error fetching blood banks:', err)
+    );
 
     return () => unsubscribe();
   }, [userLocation, searchRadius]);
 
-  const getUrgencyColor = (urgency) => {
-    switch (urgency?.toLowerCase()) {
-      case 'critical': return 'from-red-500 to-red-700';
-      case 'urgent': return 'from-orange-500 to-orange-700'; // Changed 'high' to 'urgent' to match EmergencySection.jsx
-      default: return 'from-yellow-500 to-yellow-700';
+  // Memoize expensive calculations for better performance
+  const urgencyStats = useMemo(() => ({
+    critical: filteredEmergencies.filter(e => e.urgency === 'Critical').length,
+    high: filteredEmergencies.filter(e => e.urgency === 'High').length,
+    medium: filteredEmergencies.filter(e => e.urgency === 'Medium').length,
+    total: filteredEmergencies.length
+  }), [filteredEmergencies]);
+
+  const getTileLayerUrl = useMemo(() => {
+    return mapStyle === 'satellite'
+      ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+      : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+  }, [mapStyle]);
+
+  const handleRefresh = useCallback(() => {
+    setIsRefreshing(true);
+    // Refresh geolocation
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords;
+          setUserLocation({ lat: latitude, lng: longitude });
+          const name = await fetchLocationName(latitude, longitude);
+          setLocationName(name || `Lat: ${latitude.toFixed(4)}, Lng: ${longitude.toFixed(4)}`);
+        },
+        (error) => {
+          console.error('Error refreshing location:', error);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
     }
-  };
+    setTimeout(() => setIsRefreshing(false), 1000);
+  }, []);
 
-  const getMarkerIcon = (emergency) => {
-    if (emergency.urgency === 'Critical') return criticalIcon;
-    return emergencyIcon;
-  };
-
-  const toggleFullscreen = () => {
-    setIsFullscreen(!isFullscreen);
-  };
-
-  const getTileLayerUrl = () => {
-    switch (mapStyle) {
-      case 'satellite': return 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-      default: return 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-    }
-  };
-
-  const handleReportEmergency = () => {
-    setShowReportModal(true);
-  };
+  const getUrgencyBadge = useCallback((urgency) => {
+    const badges = {
+      Critical: 'bg-red-500 text-white',
+      High: 'bg-orange-500 text-white',
+      Medium: 'bg-yellow-500 text-white',
+      Low: 'bg-green-500 text-white'
+    };
+    return badges[urgency] || badges.Medium;
+  }, []);
 
   return (
-    <div className={`${isFullscreen ? 'fixed inset-0 z-50 bg-black' : 'py-16 bg-gradient-to-br from-slate-50 to-blue-50'}`}>
-      <div className={`${isFullscreen ? 'h-full p-4' : 'container mx-auto px-4'}`}>
-        {/* Header */}
-        <div className={`${isFullscreen ? 'mb-4' : 'text-center mb-12'}`}>
-          <div className="flex items-center justify-between mb-6">
+    <div className={`${isFullscreen ? 'fixed inset-0 z-50 bg-white overflow-y-auto' : 'py-20 bg-gray-50'}`}>
+      <div className={`${isFullscreen ? 'min-h-full p-6' : 'container mx-auto px-4'}`}>
+        
+        {/* Clean Professional Header */}
+        <div className={`${isFullscreen ? 'mb-6' : 'mb-10'}`}>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div>
-              <h2 className="text-4xl font-bold bg-gradient-to-r from-red-600 to-blue-600 bg-clip-text text-transparent mb-3">
+              <h1 className="text-4xl md:text-5xl font-extrabold text-gray-900 mb-3 tracking-tight">
                 Live Emergency Map
-              </h2>
-              <p className="text-gray-600 max-w-3xl">
-                AI-powered real-time blood emergency tracking with advanced geospatial analytics
+              </h1>
+              <p className="text-lg text-gray-600 max-w-2xl">
+                Real-time blood emergency tracking • Connect with donors instantly
               </p>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 px-3 py-2 bg-white/80 backdrop-blur-sm rounded-full shadow-lg">
-                <div className={`w-2 h-2 rounded-full animate-pulse ${loading ? 'bg-yellow-500' : error ? 'bg-red-500' : 'bg-green-500'}`}></div>
-                <span className="text-sm font-medium">{loading ? 'Loading...' : error ? 'Error' : 'Live'}</span>
+            
+            {/* Status Bar */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2.5 px-5 py-3 bg-white rounded-xl shadow-sm border border-gray-200">
+                <div className={`w-2.5 h-2.5 rounded-full ${loading ? 'bg-yellow-400 animate-pulse' : error ? 'bg-red-500' : 'bg-green-500'}`}></div>
+                <span className="text-sm font-semibold text-gray-700">
+                  {loading ? 'Loading' : error ? 'Error' : 'Live'}
+                </span>
               </div>
+              
               <button
-                onClick={toggleFullscreen}
-                className="p-2 bg-white/80 backdrop-blur-sm rounded-full shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105"
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="p-3 bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-200 border border-gray-200 hover:border-gray-300 disabled:opacity-50"
+                title="Refresh map data"
               >
-                {isFullscreen ? '⊟' : '⊞'}
+                <RefreshCw size={20} className={`text-gray-700 ${isRefreshing ? 'animate-spin' : ''}`} />
+              </button>
+              
+              <button
+                onClick={() => setIsFullscreen(!isFullscreen)}
+                className="p-3 bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-200 border border-gray-200 hover:border-gray-300"
+                title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+              >
+                {isFullscreen ? <Minimize2 size={20} className="text-gray-700" /> : <Maximize2 size={20} className="text-gray-700" />}
+              </button>
+
+              <button
+                onClick={() => setShowReportModal(true)}
+                className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold shadow-sm hover:shadow-md transition-all duration-200 flex items-center gap-2"
+              >
+                <AlertTriangle size={18} />
+                <span className="hidden sm:inline">Report Emergency</span>
               </button>
             </div>
           </div>
         </div>
 
-        {/* Control Panel */}
-        <div className="bg-white/90 backdrop-blur-lg p-6 rounded-3xl shadow-2xl mb-6 border border-white/20">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="flex flex-col lg:flex-row lg:items-start gap-5">
-              <div className="flex-none">
-                <label className="block text-sm font-semibold text-gray-700 mb-1">Map Style</label>
-                <div className="flex gap-2">
-                  {[
-                    { value: 'default', label: '🗺️', title: 'Default' },
-                    { value: 'satellite', label: '🛰️', title: 'Satellite' }
-                  ].map((style) => (
-                    <button
-                      key={style.value}
-                      title={style.title}
-                      className={`p-2 rounded-xl text-lg transition-all duration-300 ${
-                        mapStyle === style.value
-                          ? 'bg-blue-500 text-white shadow-lg'
-                          : 'bg-gray-100 hover:bg-gray-200'
-                      }`}
-                      onClick={() => setMapStyle(style.value)}
-                    >
-                      {style.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex-1">
-                <label className="block text-sm font-semibold text-gray-700 mb-1">Blood Type</label>
-                <div className="flex flex-nowrap justify-between gap-2">
-                  {bloodTypes.map((type) => (
-                    <button
-                      key={type}
-                      className={`px-4 py-2 rounded-xl text-base font-medium transition-all duration-300 flex-1 text-center ${
-                        bloodTypeFilter === type
-                          ? 'bg-gradient-to-r from-red-500 to-red-600 text-white shadow-lg transform scale-105'
-                          : 'bg-gray-100/80 text-gray-700 hover:bg-gray-200/80 hover:scale-105'
-                      }`}
-                      onClick={() => setBloodTypeFilter(type)}
-                    >
-                      {type}
-                    </button>
-                  ))}
-                </div>
-              </div>
+        {/* Professional Control Panel */}
+        <div className="bg-white rounded-2xl shadow-md border border-gray-200 p-6 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+            
+            {/* Blood Type Filter */}
+            <div>
+              <label className="flex items-center gap-2 text-sm font-bold text-gray-800 mb-2.5">
+                <Droplet size={16} className="text-red-600" />
+                Blood Type
+              </label>
+              <select
+                value={bloodTypeFilter}
+                onChange={(e) => setBloodTypeFilter(e.target.value)}
+                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all bg-white text-gray-900 font-medium"
+              >
+                {bloodTypes.map(type => (
+                  <option key={type} value={type}>{type}</option>
+                ))}
+              </select>
             </div>
 
-            <div className="flex flex-col lg:flex-row lg:justify-end gap-2 mr-1">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">View Mode</label>
-                <select
-                  value={viewMode}
-                  onChange={(e) => setViewMode(e.target.value)}
-                  className="w-[350px] min-w-[200px] h-[35px] px-2 py-0 bg-white/80 border-[0.5px] border-gray-200 rounded-xl focus:ring-1 focus:ring-red-500 focus:border-transparent transition-all duration-300 text-sm"
-                >
-                  <option value="emergencies">🚨 Emergencies Only</option>
-                  <option value="bloodbanks">🏥 Blood Banks Only</option>
-                  <option value="both">🔄 Show Both</option>
-                </select>
-              </div>
+            {/* View Mode */}
+            <div>
+              <label className="flex items-center gap-2 text-sm font-bold text-gray-800 mb-2.5">
+                <Layers size={16} className="text-blue-600" />
+                View Mode
+              </label>
+              <select
+                value={viewMode}
+                onChange={(e) => setViewMode(e.target.value)}
+                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white text-gray-900 font-medium"
+              >
+                <option value="emergencies">🆘 Emergencies Only</option>
+                <option value="bloodbanks">🏥 Blood Banks Only</option>
+                <option value="both">🌐 Show Both</option>
+              </select>
+            </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">
-                  Search Radius: {searchRadius <= 500 ? `${searchRadius}km` : '500km+'}
-                </label>
-                <select
-                  value={searchRadius}
-                  onChange={(e) => setSearchRadius(parseInt(e.target.value))}
-                  className="w-[350px] min-w-[200px] h-[35px] px-2 py-0 bg-white/80 border-[0.5px] border-gray-200 rounded-xl focus:ring-1 focus:ring-red-500 focus:border-transparent transition-all duration-300 text-sm"
+            {/* Map Style */}
+            <div>
+              <label className="flex items-center gap-2 text-sm font-bold text-gray-800 mb-2.5">
+                <MapPinned size={16} className="text-purple-600" />
+                Map Style
+              </label>
+              <select
+                value={mapStyle}
+                onChange={(e) => setMapStyle(e.target.value)}
+                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all bg-white text-gray-900 font-medium"
+              >
+                <option value="default">🗺️ Default</option>
+                <option value="satellite">🛰️ Satellite</option>
+              </select>
+            </div>
+
+            {/* Search Radius */}
+            <div>
+              <label className="flex items-center gap-2 text-sm font-bold text-gray-800 mb-2.5">
+                <Navigation size={16} className="text-green-600" />
+                Search Radius: {searchRadius}km
+              </label>
+              <div className="relative">
+                <button
+                  onClick={() => setShowRadiusSlider(!showRadiusSlider)}
+                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl hover:border-gray-300 transition-all bg-white text-gray-900 font-medium text-left flex items-center justify-between"
                 >
-                  <option value="50">50 km</option>
-                  <option value="150">150 km</option>
-                  <option value="500">500 km</option>
-                  <option value="1500">More than 500 km</option>
-                </select>
+                  <span>{searchRadius}km radius</span>
+                  <Sliders size={18} className="text-gray-600" />
+                </button>
+                
+                {showRadiusSlider && (
+                  <div className="absolute top-full left-0 right-0 mt-2 p-4 bg-white rounded-xl shadow-lg border-2 border-gray-200 z-10">
+                    <input
+                      type="range"
+                      min="10"
+                      max="1500"
+                      step="10"
+                      value={searchRadius}
+                      onChange={(e) => setSearchRadius(parseInt(e.target.value))}
+                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-green-600"
+                    />
+                    <div className="flex justify-between text-xs text-gray-600 mt-2">
+                      <span>10km</span>
+                      <span>1500km</span>
+                    </div>
+                  </div>
+                )}
               </div>
+            </div>
+          </div>
+
+          {/* Stats Dashboard */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t-2 border-gray-100">
+            <div className="text-center p-4 bg-red-50 rounded-xl border-2 border-red-100">
+              <div className="text-3xl font-extrabold text-red-600">{filteredEmergencies.length}</div>
+              <div className="text-xs font-semibold text-gray-700 mt-1.5">Active Emergencies</div>
+            </div>
+            <div className="text-center p-4 bg-blue-50 rounded-xl border-2 border-blue-100">
+              <div className="text-3xl font-extrabold text-blue-600">{bloodBanks.length}</div>
+              <div className="text-xs font-semibold text-gray-700 mt-1.5">Blood Banks</div>
+            </div>
+            <div className="text-center p-4 bg-green-50 rounded-xl border-2 border-green-100">
+              <div className="text-3xl font-extrabold text-green-600">{searchRadius}</div>
+              <div className="text-xs font-semibold text-gray-700 mt-1.5">Radius (km)</div>
+            </div>
+            <div className="text-center p-4 bg-purple-50 rounded-xl border-2 border-purple-100">
+              <div className="text-3xl font-extrabold text-purple-600">
+                <MapPin size={24} className="inline" />
+              </div>
+              <div className="text-xs font-semibold text-gray-700 mt-1.5">Your Location</div>
             </div>
           </div>
         </div>
 
         {/* Map Container */}
-        <div className="bg-white/90 backdrop-blur-lg rounded-3xl shadow-2xl overflow-hidden border border-white/20">
-          <div className={`${isFullscreen ? 'h-[calc(100vh-200px)]' : 'h-[600px]'} relative`}>
-            {error && (
-              <div className="absolute top-4 left-4 bg-red-100 text-red-800 p-3 rounded-lg z-[1000]">
-                {error}
-              </div>
-            )}
+        <div 
+          id="emergency-map-container"
+          className={`${isFullscreen ? 'h-[85vh]' : 'h-[650px]'} rounded-2xl overflow-hidden shadow-xl border-4 border-white ring-1 ring-gray-200`}
+        >
+          {!loading && (
             <MapContainer
-              ref={mapRef}
+              key={mapKey}
               center={[userLocation.lat, userLocation.lng]}
               zoom={12}
               style={{ height: '100%', width: '100%' }}
-              className="rounded-3xl"
+              ref={mapRef}
+              zoomControl={true}
             >
-              <TileLayer
-                url={getTileLayerUrl()}
-                attribution='© OpenStreetMap contributors'
-              />
-              
-              <MapUpdater 
-                userLocation={userLocation} 
-                filteredEmergencies={filteredEmergencies} 
-                viewMode={viewMode} 
-              />
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+              url={getTileLayerUrl}
+            />
 
-              <Circle
-                center={[userLocation.lat, userLocation.lng]}
-                radius={searchRadius * 1000}
-                pathOptions={{
-                  fillColor: '#3b82f6',
-                  fillOpacity: 0.1,
-                  color: '#3b82f6',
-                  weight: 2,
-                  opacity: 0.6,
-                  dashArray: '10, 10'
-                }}
-              />
+            <MapUpdater
+              userLocation={userLocation}
+              filteredEmergencies={filteredEmergencies}
+              viewMode={viewMode}
+              bloodBanks={bloodBanks}
+            />
 
-              <Marker 
-                position={[userLocation.lat, userLocation.lng]} 
-                icon={userLocationIcon}
+            {/* User Location Marker */}
+            <Marker position={[userLocation.lat, userLocation.lng]} icon={userLocationIcon}>
+              <Popup>
+                <div className="p-3 min-w-[220px]">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                      <User size={20} className="text-green-600" />
+                    </div>
+                    <div className="font-bold text-gray-900">Your Location</div>
+                  </div>
+                  <p className="text-sm text-gray-700 font-medium">{locationName}</p>
+                </div>
+              </Popup>
+            </Marker>
+
+            {/* Emergency Markers */}
+            {(viewMode === 'emergencies' || viewMode === 'both') && filteredEmergencies.map(emergency => (
+              <Marker
+                key={emergency.id}
+                position={[emergency.coordinates.latitude, emergency.coordinates.longitude]}
+                icon={emergency.urgency === 'Critical' ? criticalIcon : emergencyIcon}
               >
-                <Popup className="custom-popup">
-                  <div className="p-2">
-                    <h4 className="font-bold text-green-600">📍 Your Location</h4>
-                    <p className="text-sm text-gray-600">{locationName}</p>
+                <Popup>
+                  <div className="p-4 min-w-[300px]">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center">
+                          <AlertTriangle size={24} className="text-red-600" />
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-gray-900 text-lg">{emergency.patientName}</h3>
+                          <span className={`text-xs px-3 py-1 rounded-full font-bold ${getUrgencyBadge(emergency.urgency)}`}>
+                            {emergency.urgency}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 text-sm">
+                      <div className="flex items-center gap-3 text-gray-800">
+                        <Droplet size={16} className="text-red-500" />
+                        <span className="font-bold text-red-600 text-base">{emergency.bloodType}</span>
+                        <span className="font-semibold">• {emergency.units} units needed</span>
+                      </div>
+                      
+                      <div className="flex items-center gap-3 text-gray-800">
+                        <Building2 size={16} />
+                        <span className="font-semibold">{emergency.hospital}</span>
+                      </div>
+                      
+                      <div className="flex items-center gap-3 text-gray-700">
+                        <MapPin size={16} />
+                        <span className="text-xs">{emergency.location}</span>
+                      </div>
+                      
+                      <div className="flex items-center gap-3 text-gray-800">
+                        <User size={16} />
+                        <span className="font-medium">{emergency.contactName}</span>
+                      </div>
+                      
+                      <div className="flex items-center gap-3 text-gray-800">
+                        <Phone size={16} />
+                        <a href={`tel:${emergency.contactPhone}`} className="text-blue-600 hover:underline font-semibold">
+                          {emergency.contactPhone}
+                        </a>
+                      </div>
+                      
+                      <div className="flex items-center gap-3 text-gray-800">
+                        <Navigation size={16} />
+                        <span className="font-bold text-green-600">{emergency.distance} km away</span>
+                      </div>
+                    </div>
+
+                    {emergency.notes && (
+                      <div className="mt-4 pt-4 border-t-2 border-gray-100">
+                        <p className="text-xs text-gray-700 italic font-medium">{emergency.notes}</p>
+                      </div>
+                    )}
+
+                    <a
+                      href={`tel:${emergency.contactPhone}`}
+                      className="mt-4 w-full bg-red-600 hover:bg-red-700 text-white py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-colors shadow-md"
+                    >
+                      <Phone size={18} />
+                      Call Now
+                    </a>
                   </div>
                 </Popup>
               </Marker>
+            ))}
 
-              {(viewMode === 'emergencies' || viewMode === 'both') && 
-                filteredEmergencies.map((emergency) => (
-                  <Marker
-                    key={emergency.id}
-                    position={[emergency.coordinates.latitude, emergency.coordinates.longitude]}
-                    icon={getMarkerIcon(emergency)}
-                    eventHandlers={{
-                      click: () => setSelectedEmergency(emergency)
-                    }}
-                  >
-                    <Popup className="custom-popup">
-                      <div className="p-4 min-w-[280px]">
-                        <div className="flex items-center justify-between mb-3">
-                          <h4 className="font-bold text-lg">{emergency.hospital}</h4>
-                          <div className={`px-2 py-1 rounded-full text-xs font-bold text-white bg-gradient-to-r ${getUrgencyColor(emergency.urgency)}`}>
-                            {emergency.urgency || 'Unknown'}
-                          </div>
+            {/* Blood Bank Markers */}
+            {(viewMode === 'bloodbanks' || viewMode === 'both') && bloodBanks.map(bank => {
+              const inventory = bank.inventory || bank.availability || {};
+              const distance = bank.distance || calculateDistance(
+                userLocation.lat, 
+                userLocation.lng,
+                bank.coordinates?.latitude || bank.latitude || 0,
+                bank.coordinates?.longitude || bank.longitude || 0
+              );
+              
+              return (
+                <Marker
+                  key={bank.id}
+                  position={[
+                    bank.coordinates?.latitude || bank.latitude, 
+                    bank.coordinates?.longitude || bank.longitude
+                  ]}
+                  icon={bloodBankIcon}
+                >
+                  <Popup className="compact-blood-bank-popup">
+                    <div className="p-2 min-w-[220px] max-w-[280px]">
+                      {/* Compact Header */}
+                      <div className="flex items-center gap-2 mb-2 pb-2 border-b border-gray-200">
+                        <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <Building2 size={16} className="text-blue-600" />
                         </div>
-                        
-                        <div className="space-y-2 text-sm">
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold">📍 Location:</span>
-                            <span>{emergency.location}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold">🩸 Blood Type:</span>
-                            <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                              rareBloodTypes.includes(emergency.bloodType) 
-                                ? 'bg-purple-100 text-purple-800' 
-                                : 'bg-red-100 text-red-800'
-                            }`}>
-                              {emergency.bloodType}
-                              {rareBloodTypes.includes(emergency.bloodType) && ' (Rare)'}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold">💧 Units:</span>
-                            <span>{emergency.units || 1}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold">📏 Distance:</span>
-                            <span>{emergency.distance} km</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold">⏰ Posted:</span>
-                            <span>{Math.floor((Date.now() / 1000 - emergency.timestamp.seconds) / 60)} min ago</span>
-                          </div>
-                        </div>
-                        
-                        <div className="mt-4 flex gap-2">
-                          <a
-                            href={`https://www.google.com/maps/dir/?api=1&destination=${emergency.coordinates.latitude},${emergency.coordinates.longitude}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex-1 bg-gradient-to-r from-blue-500 to-blue-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:shadow-lg transition-all duration-300 text-center"
-                          >
-                            🧭 Navigate
-                          </a>
-                          <button className="flex-1 bg-gradient-to-r from-red-500 to-red-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:shadow-lg transition-all duration-300">
-                            🤝 Respond
-                          </button>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-bold text-gray-900 text-sm leading-tight truncate">{bank.name}</h3>
+                          <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                            <Navigation size={10} />
+                            {distance.toFixed(1)} km away
+                          </p>
                         </div>
                       </div>
-                    </Popup>
-                  </Marker>
-                ))
-              }
 
-              {(viewMode === 'bloodbanks' || viewMode === 'both') && 
-                bloodBanks.map((bank) => (
-                  <Marker
-                    key={bank.id}
-                    position={[bank.coordinates.latitude, bank.coordinates.longitude]}
-                    icon={bloodBankIcon}
-                  >
-                    <Popup className="custom-popup">
-                      <div className="p-4 min-w-[300px]">
-                        <h4 className="font-bold text-lg mb-3 text-blue-600">{bank.name}</h4>
-                        
-                        <div className="space-y-2 text-sm mb-4">
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold">📍 Location:</span>
-                            <span>{bank.location}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold">📏 Distance:</span>
-                            <span>{bank.distance} km</span>
-                          </div>
+                      {/* Compact Blood Availability */}
+                      <div className="mb-2">
+                        <p className="text-xs font-semibold text-gray-600 mb-1.5">Available Blood:</p>
+                        <div className="flex flex-wrap gap-1">
+                          {Object.entries(inventory)
+                            .filter(([_, count]) => count > 0)
+                            .slice(0, 4)
+                            .map(([type, count]) => {
+                              const isUserBloodType = userProfile?.bloodType === type;
+                              return (
+                                <span
+                                  key={type}
+                                  className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold ${
+                                    isUserBloodType
+                                      ? 'bg-green-500 text-white ring-2 ring-green-300'
+                                      : count < 5 
+                                      ? 'bg-orange-100 text-orange-700' 
+                                      : 'bg-green-100 text-green-700'
+                                  }`}
+                                >
+                                  {type}: {count}
+                                  {isUserBloodType && ' ✓'}
+                                </span>
+                              );
+                            })}
+                          {Object.entries(inventory).filter(([_, count]) => count > 0).length > 4 && (
+                            <span className="text-xs text-gray-500 font-medium">
+                              +{Object.entries(inventory).filter(([_, count]) => count > 0).length - 4} more
+                            </span>
+                          )}
                         </div>
+                      </div>
 
-                        <div className="mb-4">
-                          <h5 className="font-semibold mb-2">🩸 Blood Availability:</h5>
-                          <div className="grid grid-cols-3 gap-2">
-                            {Object.entries(bank.availability).map(([type, count]) => (
-                              <div key={type} className="bg-gray-50 p-2 rounded-lg text-center">
-                                <div className="font-bold text-red-600">{type}</div>
-                                <div className="text-sm text-gray-600">{count} units</div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                        
+                      {/* Compact Actions */}
+                      <div className="flex gap-1.5 mt-2 pt-2 border-t border-gray-100">
+                        {bank.phone && (
+                          <a
+                            href={`tel:${bank.phone}`}
+                            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-3 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1 shadow-md"
+                          >
+                            <Phone size={14} className="text-white" />
+                            <span>Call</span>
+                          </a>
+                        )}
                         <a
-                          href={`https://www.google.com/maps/dir/?api=1&destination=${bank.coordinates.latitude},${bank.coordinates.longitude}`}
+                          href={`https://www.google.com/maps/dir/?api=1&destination=${bank.coordinates?.latitude || bank.latitude},${bank.coordinates?.longitude || bank.longitude}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="block w-full bg-gradient-to-r from-blue-500 to-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:shadow-lg transition-all duration-300 text-center"
+                          className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 px-3 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1 shadow-md"
                         >
-                          🧭 Get Directions
+                          <MapPin size={12} />
+                          Directions
                         </a>
                       </div>
-                    </Popup>
-                  </Marker>
-                ))
-              }
-            </MapContainer>
+                    </div>
+                  </Popup>
+                </Marker>
+              );
+            })}
 
-            <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-lg rounded-2xl p-4 shadow-xl border border-white/20 z-[1000]">
-              <h5 className="font-bold mb-3 text-gray-800">Legend</h5>
-              <div className="space-y-2 text-sm">
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 bg-gradient-to-r from-red-400 to-red-600 rounded-full"></div>
-                  <span>Emergency</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 bg-gradient-to-r from-blue-400 to-blue-700 rounded-full"></div>
-                  <span>Blood Bank</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 bg-gradient-to-r from-green-400 to-green-700 rounded-full"></div>
-                  <span>Your Location</span>
-                </div>
-              </div>
+            {/* Search Radius Circle */}
+            <Circle
+              center={[userLocation.lat, userLocation.lng]}
+              radius={searchRadius * 1000}
+              pathOptions={{
+                color: '#10b981',
+                fillColor: '#10b981',
+                fillOpacity: 0.05,
+                weight: 2,
+                dashArray: '10, 10'
+              }}
+            />
+          </MapContainer>
+          )}
+        </div>
+
+        {/* Legend */}
+        <div className="mt-6 bg-white rounded-2xl shadow-md border border-gray-200 p-5">
+          <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2 text-lg">
+            <Filter size={20} />
+            Map Legend
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-red-500 rounded-full flex items-center justify-center text-white font-bold shadow-md">🆘</div>
+              <span className="text-sm font-semibold text-gray-800">Emergency</span>
             </div>
-          </div>
-
-          <div className="bg-gradient-to-r from-gray-50 to-blue-50 p-4 border-t border-gray-200/50">
-            <div className="flex justify-between items-center">
-              <div className="flex gap-6 text-sm">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                  <span className="font-medium">{filteredEmergencies.length} Active Emergencies</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                  <span className="font-medium">{bloodBanks.length} Blood Banks</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  <span className="font-medium">Within {searchRadius <= 500 ? `${searchRadius}km` : '500km+'} radius</span>
-                </div>
-              </div>
-              <button 
-                onClick={handleReportEmergency}
-                className="bg-gradient-to-r from-red-500 to-red-600 text-white px-6 py-2 rounded-xl font-medium hover:shadow-lg transition-all duration-300 hover:scale-105"
-              >
-                🚨 Report Emergency
-              </button>
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center text-white font-bold shadow-md">🚨</div>
+              <span className="text-sm font-semibold text-gray-800">Critical</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold shadow-md">🏥</div>
+              <span className="text-sm font-semibold text-gray-800">Blood Bank</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white font-bold shadow-md">📍</div>
+              <span className="text-sm font-semibold text-gray-800">You</span>
             </div>
           </div>
         </div>
       </div>
 
-      <EmergencyRequestModal
-        show={showReportModal}
-        setShow={setShowReportModal}
-        setShowSuccess={setShowSuccess}
-        userLocation={userLocation}
-      />
-
-      {showSuccess && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl">
-            <h3 className="text-xl font-bold text-green-600 mb-4">Success!</h3>
-            <p className="text-gray-600 mb-4">Your emergency request has been submitted successfully.</p>
-            <div className="flex justify-end">
-              <button
-                onClick={() => setShowSuccess(false)}
-                className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-all duration-300"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Modals */}
+      {showReportModal && (
+        <EmergencyRequestModal
+          show={showReportModal}
+          setShow={setShowReportModal}
+          setShowSuccess={setShowSuccess}
+          userLocation={userLocation}
+        />
       )}
 
+      {/* Global Styles for Animations */}
       <style>{`
-        .custom-popup .leaflet-popup-content-wrapper {
-          background: rgba(255, 255, 255, 0.95);
-          backdrop-filter: blur(10px);
+        @keyframes ping {
+          75%, 100% {
+            transform: scale(2);
+            opacity: 0;
+          }
+        }
+        .leaflet-popup-content-wrapper {
           border-radius: 16px;
-          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.2);
+          box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
         }
-        
-        .custom-popup .leaflet-popup-tip {
-          background: rgba(255, 255, 255, 0.95);
-          backdrop-filter: blur(10px);
+        .leaflet-popup-tip {
+          display: none;
         }
-        
-        .custom-marker {
-          filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.1));
+        input[type="range"]::-webkit-slider-thumb {
+          appearance: none;
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          background: #10b981;
+          cursor: pointer;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        input[type="range"]::-moz-range-thumb {
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          background: #10b981;
+          cursor: pointer;
+          border: none;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         }
       `}</style>
     </div>
   );
-}
+});
+
+EmergencyMapSection.displayName = 'EmergencyMapSection';
+
+export default EmergencyMapSection;

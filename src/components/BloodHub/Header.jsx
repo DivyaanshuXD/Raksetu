@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { logger } from '../../utils/logger';
 import { 
   Droplet, 
   Bell, 
@@ -16,12 +17,17 @@ import {
   Search,
   Shield,
   Trash,
-  ShieldAlert // Add ShieldAlert icon for Admin
+  ShieldAlert, // Admin icon
+  BarChart3, // Inventory Dashboard icon
+  Users // Community icon
 } from 'lucide-react';
 import { signOut } from 'firebase/auth';
 import { auth, db } from '../utils/firebase';
 import { listenForNotifications } from '../utils/notifications';
 import { doc, updateDoc, arrayUnion, getDoc } from 'firebase/firestore';
+import { useRole } from '../../hooks/useRole'; // Import role management hook
+import PWAInstallButton from './PWAInstallButton'; // PWA install button
+import LanguageSelector from './LanguageSelector'; // Custom language selector
 
 // Custom hooks for better state management
 const useClickOutside = (refs, handler) => {
@@ -177,7 +183,8 @@ export default function Header({
   setIsLoggedIn,
   setShowAuthModal,
   setAuthMode,
-  userProfile
+  userProfile,
+  setShowNotificationCenter
 }) {
   const [showDropdowns, setShowDropdowns] = useState({
     notifications: false,
@@ -192,8 +199,8 @@ export default function Header({
   const notificationRef = useRef(null);
   const profileMenuRef = useRef(null);
 
-  // Check if the logged-in user is the admin
-  const isAdmin = userProfile?.email === 'makrostake@gmail.com'; // Replace with your actual email
+  // Use role management system instead of hardcoded email check
+  const { isAdmin, isDonor, isRecipient } = useRole(userProfile);
 
   // Fetch the user's emergencyAlerts setting
   useEffect(() => {
@@ -201,25 +208,25 @@ export default function Header({
       try {
         const user = auth.currentUser;
         if (!user) {
-          console.log('No authenticated user found, defaulting emergencyAlerts to true');
+          logger.info('No authenticated user found, defaulting emergencyAlerts to true');
           setEmergencyAlerts(true);
           return;
         }
 
-        console.log('Fetching settings for user:', user.uid);
+        logger.info('Fetching settings for user:', user.uid);
         const userDocRef = doc(db, 'users', user.uid);
         const userDoc = await getDoc(userDocRef);
         if (userDoc.exists()) {
           const userData = userDoc.data();
           const fetchedEmergencyAlerts = userData.emergencyAlerts ?? true;
           setEmergencyAlerts(fetchedEmergencyAlerts);
-          console.log('Fetched emergencyAlerts setting:', fetchedEmergencyAlerts);
+          logger.info('Fetched emergencyAlerts setting:', fetchedEmergencyAlerts);
         } else {
-          console.warn('User document not found, defaulting emergencyAlerts to true');
+          logger.warn('User document not found, defaulting emergencyAlerts to true');
           setEmergencyAlerts(true);
         }
       } catch (err) {
-        console.error('Error fetching settings:', err);
+        logger.error('Error fetching settings:', err);
         setEmergencyAlerts(true); // Default to true if there's an error
       }
     };
@@ -240,9 +247,9 @@ export default function Header({
   // Listen for notifications in real-time and filter based on emergencyAlerts
   useEffect(() => {
     let unsubscribe;
-    console.log('Setting up notifications listener');
+    logger.info('Setting up notifications listener');
     unsubscribe = listenForNotifications((newNotifications) => {
-      console.log('Received notifications:', newNotifications);
+      logger.info('Received notifications:', newNotifications);
       
       // Filter notifications: only include emergency notifications if emergencyAlerts is true
       const filteredNotifications = newNotifications.filter(notification => {
@@ -252,7 +259,7 @@ export default function Header({
         return false; // Ignore other notification types (dysfunctional as requested)
       });
       
-      console.log('Filtered notifications:', filteredNotifications);
+      logger.info('Filtered notifications:', filteredNotifications);
       setNotifications(filteredNotifications);
       
       // Calculate unread count based on login status
@@ -260,12 +267,12 @@ export default function Header({
         const unread = filteredNotifications.filter(
           (notif) => !notif.readBy?.includes(auth.currentUser.uid)
         ).length;
-        console.log('Unread notifications count (logged in):', unread);
+        logger.info('Unread notifications count (logged in):', unread);
         setUnreadCount(unread);
       } else {
         // For unauthenticated users, treat all filtered notifications as unread
         const unread = filteredNotifications.length;
-        console.log('Unread notifications count (not logged in):', unread);
+        logger.info('Unread notifications count (not logged in):', unread);
         setUnreadCount(unread);
       }
     });
@@ -277,6 +284,7 @@ export default function Header({
     { id: 'home', label: 'Home', icon: <Home size={16} /> },
     { id: 'donate', label: 'Donate', icon: <Gift size={16} />, badge: 'New' },
     { id: 'emergency', label: 'Emergency', icon: <AlertTriangle size={16} /> },
+    { id: 'community', label: 'Community', icon: <Users size={16} />, badge: '🎉' },
     { id: 'track', label: 'Track', icon: <Search size={16} /> },
     { id: 'about', label: 'About', icon: <Shield size={16} /> }
   ], []);
@@ -290,7 +298,7 @@ export default function Header({
       setShowDropdowns({ notifications: false, profile: false });
       setActiveSection('home');
     } catch (error) {
-      console.error('Sign out error:', error);
+      logger.error('Sign out error:', error);
     }
   }, [setIsLoggedIn, setIsMenuOpen, setActiveSection]);
 
@@ -336,19 +344,19 @@ export default function Header({
         await updateDoc(notificationRef, {
           readBy: arrayUnion(auth.currentUser.uid)
         });
-        console.log('Notification marked as read:', notification.id);
+        logger.info('Notification marked as read:', notification.id);
       } catch (error) {
-        console.error('Error marking notification as read:', error);
+        logger.error('Error marking notification as read:', error);
       }
     } else {
-      console.log('User not logged in, skipping mark as read');
+      logger.info('User not logged in, skipping mark as read');
     }
   }, [setActiveSection, isLoggedIn]);
 
   // Mark all notifications as read
   const handleMarkAllRead = useCallback(async () => {
     if (!isLoggedIn || !auth.currentUser) {
-      console.log('User not logged in, cannot mark notifications as read');
+      logger.info('User not logged in, cannot mark notifications as read');
       return;
     }
 
@@ -357,7 +365,7 @@ export default function Header({
     );
 
     if (unreadNotifications.length === 0) {
-      console.log('No unread notifications to mark as read');
+      logger.info('No unread notifications to mark as read');
       return;
     }
 
@@ -368,16 +376,16 @@ export default function Header({
           readBy: arrayUnion(auth.currentUser.uid)
         });
       }
-      console.log('All notifications marked as read');
+      logger.info('All notifications marked as read');
     } catch (error) {
-      console.error('Error marking notifications as read:', error);
+      logger.error('Error marking notifications as read:', error);
     }
   }, [notifications, isLoggedIn]);
 
   // Clear all notifications for the current user by marking them as read
   const handleClearNotifications = useCallback(async () => {
     if (!isLoggedIn || !auth.currentUser) {
-      console.log('User not logged in, cannot clear notifications');
+      logger.info('User not logged in, cannot clear notifications');
       return;
     }
 
@@ -387,7 +395,7 @@ export default function Header({
       );
 
       if (notificationsToClear.length === 0) {
-        console.log('No notifications to clear');
+        logger.info('No notifications to clear');
         return;
       }
 
@@ -397,15 +405,15 @@ export default function Header({
           readBy: arrayUnion(auth.currentUser.uid)
         });
       }
-      console.log('All notifications cleared for user:', auth.currentUser.uid);
+      logger.info('All notifications cleared for user:', auth.currentUser.uid);
     } catch (error) {
-      console.error('Error clearing notifications:', error);
+      logger.error('Error clearing notifications:', error);
     }
   }, [notifications, isLoggedIn]);
 
   return (
     <header className={`
-      sticky top-0 z-50 transition-all duration-500 ease-out backdrop-blur-md
+      sticky top-0 z-50 transition-all duration-500 ease-out
       ${scrolled 
         ? 'bg-white/95 shadow-lg border-b border-red-100 py-2' 
         : 'bg-white/90 shadow-sm py-3'
@@ -452,28 +460,31 @@ export default function Header({
 
           {/* User Actions */}
           <div className="flex items-center space-x-3">
+            {/* PWA Install Button - Always visible */}
+            <PWAInstallButton />
+            
             {isLoggedIn ? (
               <div className="hidden md:flex items-center space-x-3">
                 {/* Enhanced Notifications */}
                 <div className="relative" ref={notificationRef}>
                   <NotificationBell
                     count={unreadCount}
-                    onClick={() => toggleDropdown('notifications')}
-                    isOpen={showDropdowns.notifications}
+                    onClick={() => setShowNotificationCenter && setShowNotificationCenter(true)}
+                    isOpen={false}
                   />
                   
                   {showDropdowns.notifications && (
-                    <div className="absolute right-0 mt-3 w-80 bg-white/95 backdrop-blur-md border border-red-100 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in slide-in-from-top-2 duration-300">
-                      <div className="p-4 bg-gradient-to-r from-red-50 to-white border-b border-red-100">
+                    <div className="absolute right-0 mt-3 w-80 bg-white dark:bg-gray-800 border border-red-100 dark:border-gray-700 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in slide-in-from-top-2 duration-300">
+                      <div className="p-4 bg-gradient-to-r from-red-50 to-white dark:from-gray-800 dark:to-gray-800 border-b border-red-100 dark:border-gray-700">
                         <div className="flex justify-between items-center">
-                          <h4 className="font-semibold text-gray-800 flex items-center">
-                            <Bell size={16} className="mr-2 text-red-600" />
+                          <h4 className="font-semibold text-gray-800 dark:text-gray-100 flex items-center">
+                            <Bell size={16} className="mr-2 text-red-600 dark:text-red-400" />
                             Notifications
                           </h4>
                           <div className="flex items-center space-x-2">
                             {unreadCount > 0 && (
                               <button 
-                                className="text-xs text-red-600 hover:text-red-800 font-medium px-2 py-1 rounded-md hover:bg-red-50 transition-colors"
+                                className="text-xs text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 font-medium px-2 py-1 rounded-md hover:bg-red-50 dark:hover:bg-gray-700 transition-colors"
                                 onClick={handleMarkAllRead}
                               >
                                 Mark all read
@@ -481,7 +492,7 @@ export default function Header({
                             )}
                             {isLoggedIn && auth.currentUser && unreadCount > 0 && (
                               <button 
-                                className="text-xs text-red-600 hover:text-red-800 font-medium px-2 py-1 rounded-md hover:bg-red-50 transition-colors"
+                                className="text-xs text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 font-medium px-2 py-1 rounded-md hover:bg-red-50 dark:hover:bg-gray-700 transition-colors"
                                 onClick={handleClearNotifications}
                                 aria-label="Clear all notifications"
                               >
@@ -502,13 +513,13 @@ export default function Header({
                             return visibleNotifications.map((notification) => (
                               <button
                                 key={notification.id}
-                                className="w-full flex items-start p-4 text-left text-sm border-b border-red-50 transition-all duration-200 bg-red-50 text-gray-800 font-medium hover:bg-red-100 hover:text-red-700"
+                                className="w-full flex items-start p-4 text-left text-sm border-b border-red-50 dark:border-gray-700 transition-all duration-200 bg-red-50 dark:bg-gray-700/50 text-gray-800 dark:text-gray-100 font-medium hover:bg-red-100 dark:hover:bg-gray-700 hover:text-red-700 dark:hover:text-red-300"
                                 onClick={() => handleNotificationClick(notification)}
                               >
-                                <AlertTriangle size={16} className="mr-3 mt-0.5 flex-shrink-0 text-red-500" />
+                                <AlertTriangle size={16} className="mr-3 mt-0.5 flex-shrink-0 text-red-500 dark:text-red-400" />
                                 <div>
                                   <p>{notification.message}</p>
-                                  <p className="text-xs text-gray-400 mt-1">
+                                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                                     {notification.createdAt?.toDate().toLocaleString()}
                                   </p>
                                 </div>
@@ -554,7 +565,7 @@ export default function Header({
                   </button>
                   
                   {showDropdowns.profile && (
-                    <div className="absolute right-0 mt-3 w-64 bg-white/95 backdrop-blur-md border border-red-100 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in slide-in-from-top-2 duration-300">
+                    <div className="absolute right-0 mt-3 w-64 bg-white border border-red-100 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in slide-in-from-top-2 duration-300">
                       {/* Profile Header */}
                       <div className="p-4 bg-gradient-to-r from-red-50 to-white border-b border-red-100">
                         <div className="flex items-center space-x-3">
@@ -582,9 +593,12 @@ export default function Header({
                             }
                           },
                           { 
-                            icon: <Heart size={16} />, 
-                            label: 'My Donations', 
-                            action: handleMyDonationsClick 
+                            icon: <BarChart3 size={16} />, 
+                            label: 'Inventory', 
+                            action: () => {
+                              setActiveSection('inventory');
+                              setShowDropdowns(prev => ({ ...prev, profile: false }));
+                            }
                           },
                           { 
                             icon: <Settings size={16} />, 
@@ -641,6 +655,9 @@ export default function Header({
               </button>
             )}
 
+            {/* Language Selector - Moved to far right */}
+            <LanguageSelector />
+
             {/* Mobile Menu Toggle */}
             <button 
               className="md:hidden p-2 rounded-xl hover:bg-red-50 transition-all duration-300" 
@@ -658,7 +675,7 @@ export default function Header({
 
       {/* Enhanced Mobile Menu */}
       {isMenuOpen && (
-        <div className="md:hidden bg-white/95 backdrop-blur-md border-t border-red-100 shadow-2xl animate-in slide-in-from-top-4 duration-300">
+        <div className="md:hidden bg-white border-t border-red-100 shadow-2xl animate-in slide-in-from-top-4 duration-300">
           <div className="container mx-auto px-4 py-4">
             {/* Navigation Links */}
             <div className="space-y-2 mb-4">

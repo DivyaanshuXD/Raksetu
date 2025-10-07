@@ -1,17 +1,19 @@
+import { memo, useEffect } from 'react';
+import { logger } from '../../utils/logger';
+import { Link } from 'react-router-dom';
 import { Droplet, Heart, Mail, Phone, ExternalLink } from 'lucide-react';
-import { useEffect } from 'react';
 
-export default function Footer({ setActiveSection }) {
+const Footer = memo(({ setActiveSection }) => {
   // Get current year dynamically
   const currentYear = new Date().getFullYear();
 
   // Debug: Log the setActiveSection prop to ensure it's a function
   useEffect(() => {
-    console.log('setActiveSection prop in Footer:', setActiveSection);
+    logger.info('setActiveSection prop in Footer:', setActiveSection);
   }, [setActiveSection]);
 
   const handleNavigation = (section) => {
-    console.log(`Footer: Navigating to section: ${section}`);
+    logger.info(`Footer: Navigating to section: ${section}`);
     setActiveSection(section);
   };
 
@@ -83,29 +85,75 @@ export default function Footer({ setActiveSection }) {
           <div>
             <h4 className="font-bold text-lg mb-6 text-white">Support</h4>
             <ul className="space-y-3">
-              {[
-                { label: 'FAQs', href: 'https://raksetu.live/faq' },
-                { label: 'Contact Us', href: 'mailto:support@raksetu.live' },
-                { label: 'Privacy Policy', href: 'https://raksetu.live/privacy' },
-                { label: 'Terms of Service', href: 'https://raksetu.live/terms' }
-              ].map((link) => (
-                <li key={link.label}>
-                  <a 
-                    href={link.href}
-                    target={link.href.startsWith('http') ? '_blank' : undefined}
-                    rel={link.href.startsWith('http') ? 'noopener noreferrer' : undefined}
-                    className="text-gray-300 hover:text-red-400 transition-all duration-300 text-sm font-medium group flex items-center"
-                  >
-                    <span className="group-hover:translate-x-2 transition-transform duration-300">
-                      {link.label}
-                    </span>
-                    {link.href.startsWith('http') && (
-                      <ExternalLink size={12} className="ml-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                    )}
-                    <div className="w-0 group-hover:w-2 h-px bg-red-400 ml-2 transition-all duration-300"></div>
-                  </a>
-                </li>
-              ))}
+              <li>
+                <a 
+                  href="https://raksetu.live/faq"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gray-300 hover:text-red-400 transition-all duration-300 text-sm font-medium group flex items-center"
+                >
+                  <span className="group-hover:translate-x-2 transition-transform duration-300">
+                    FAQs
+                  </span>
+                  <ExternalLink size={12} className="ml-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                  <div className="w-0 group-hover:w-2 h-px bg-red-400 ml-2 transition-all duration-300"></div>
+                </a>
+              </li>
+              <li>
+                <Link 
+                  to="/contact-us"
+                  className="text-gray-300 hover:text-red-400 transition-all duration-300 text-sm font-medium group flex items-center"
+                >
+                  <span className="group-hover:translate-x-2 transition-transform duration-300">
+                    Contact Us
+                  </span>
+                  <div className="w-0 group-hover:w-2 h-px bg-red-400 ml-2 transition-all duration-300"></div>
+                </Link>
+              </li>
+              <li>
+                <Link 
+                  to="/privacy-policy"
+                  className="text-gray-300 hover:text-red-400 transition-all duration-300 text-sm font-medium group flex items-center"
+                >
+                  <span className="group-hover:translate-x-2 transition-transform duration-300">
+                    Privacy Policy
+                  </span>
+                  <div className="w-0 group-hover:w-2 h-px bg-red-400 ml-2 transition-all duration-300"></div>
+                </Link>
+              </li>
+              <li>
+                <Link 
+                  to="/terms-and-conditions"
+                  className="text-gray-300 hover:text-red-400 transition-all duration-300 text-sm font-medium group flex items-center"
+                >
+                  <span className="group-hover:translate-x-2 transition-transform duration-300">
+                    Terms & Conditions
+                  </span>
+                  <div className="w-0 group-hover:w-2 h-px bg-red-400 ml-2 transition-all duration-300"></div>
+                </Link>
+              </li>
+              <li>
+                <Link 
+                  to="/refund-policy"
+                  className="text-gray-300 hover:text-red-400 transition-all duration-300 text-sm font-medium group flex items-center"
+                >
+                  <span className="group-hover:translate-x-2 transition-transform duration-300">
+                    Refund Policy
+                  </span>
+                  <div className="w-0 group-hover:w-2 h-px bg-red-400 ml-2 transition-all duration-300"></div>
+                </Link>
+              </li>
+              <li>
+                <Link 
+                  to="/shipping-policy"
+                  className="text-gray-300 hover:text-red-400 transition-all duration-300 text-sm font-medium group flex items-center"
+                >
+                  <span className="group-hover:translate-x-2 transition-transform duration-300">
+                    Shipping Policy
+                  </span>
+                  <div className="w-0 group-hover:w-2 h-px bg-red-400 ml-2 transition-all duration-300"></div>
+                </Link>
+              </li>
             </ul>
           </div>
           
@@ -247,4 +295,8 @@ export default function Footer({ setActiveSection }) {
       </div>
     </footer>
   );
-}
+});
+
+Footer.displayName = 'Footer';
+
+export default Footer;

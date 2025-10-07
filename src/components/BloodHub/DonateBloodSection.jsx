@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { logger } from '../../utils/logger';
 import { AlertTriangle, Calendar, Check, Phone, MapPin, Clock, Users, X } from 'lucide-react';
 import { collection, addDoc, serverTimestamp, doc, updateDoc, increment, getDoc, arrayRemove, query, where, onSnapshot } from 'firebase/firestore';
 import { db, auth } from '../utils/firebase';
@@ -27,26 +28,61 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
   const [isProcessing, setIsProcessing] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
   const [error, setError] = useState(null);
+  const [showAllBanksModal, setShowAllBanksModal] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const [displayCount, setDisplayCount] = useState(12); // Show 12 banks initially
+
+  // Debounce search for better performance
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   useEffect(() => {
+    // Try to get cached location first
+    const cachedLocation = sessionStorage.getItem('userLocation');
+    if (cachedLocation) {
+      setUserLocation(JSON.parse(cachedLocation));
+    }
+
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const { latitude, longitude } = position.coords;
-          setUserLocation({ lat: latitude, lng: longitude });
+          const location = { lat: latitude, lng: longitude };
+          setUserLocation(location);
+          // Cache location for session
+          sessionStorage.setItem('userLocation', JSON.stringify(location));
         },
         (err) => {
-          console.error('Geolocation error:', err);
-          setUserLocation({ lat: 28.6139, lng: 77.2090 }); // Default to Delhi
-        }
+          logger.error('Geolocation error:', err);
+          const defaultLocation = { lat: 28.6139, lng: 77.2090 }; // Default to Delhi
+          setUserLocation(defaultLocation);
+          sessionStorage.setItem('userLocation', JSON.stringify(defaultLocation));
+        },
+        { timeout: 5000, maximumAge: 300000 } // 5 min cache
       );
     } else {
-      setUserLocation({ lat: 28.6139, lng: 77.2090 });
+      const defaultLocation = { lat: 28.6139, lng: 77.2090 };
+      setUserLocation(defaultLocation);
+      sessionStorage.setItem('userLocation', JSON.stringify(defaultLocation));
     }
   }, []);
 
   useEffect(() => {
     if (userLocation) {
+      let banksLoaded = false;
+      let drivesLoaded = false;
+
+      const checkLoadingComplete = () => {
+        if (banksLoaded && drivesLoaded) {
+          setLoading(false);
+        }
+      };
+
       const bloodBanksQuery = query(collection(db, 'bloodBanks'));
       const unsubscribeBanks = onSnapshot(bloodBanksQuery, (snapshot) => {
         const banks = snapshot.docs.map(doc => {
@@ -66,12 +102,15 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
             availability: parseAvailability(data.availability),
           };
         }).filter(bank => bank.distance <= 100).sort((a, b) => a.distance - b.distance); // Sort by distance
+        
         setBloodBanks(banks);
-        setLoading(false);
+        banksLoaded = true;
+        checkLoadingComplete();
       }, (error) => {
-        console.error('Error fetching blood banks:', error);
+        logger.error('Error fetching blood banks:', error);
         setError('Failed to load blood banks.');
-        setLoading(false);
+        banksLoaded = true;
+        checkLoadingComplete();
       });
 
       const bloodDrivesQuery = query(
@@ -90,12 +129,15 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
             doc.data().coordinates?.longitude || userLocation.lng
           ),
         })).filter(drive => drive.distance <= 100);
+        
         setBloodDrives(drives);
-        setLoading(false);
+        drivesLoaded = true;
+        checkLoadingComplete();
       }, (error) => {
-        console.error('Error fetching blood drives:', error);
+        logger.error('Error fetching blood drives:', error);
         setError('Failed to load blood drives.');
-        setLoading(false);
+        drivesLoaded = true;
+        checkLoadingComplete();
       });
 
       if (auth.currentUser) {
@@ -105,7 +147,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
             const userData = docSnap.data();
             setRegisteredDrives(userData.registeredDrives?.map(drive => drive.id) || []);
           }
-        }, (error) => console.error('Error fetching user data:', error));
+        }, (error) => logger.error('Error fetching user data:', error));
 
         return () => {
           unsubscribeBanks();
@@ -144,6 +186,38 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
     return availability;
   };
 
+  // Memoize filtered blood banks for modal performance
+  const filteredBloodBanks = useMemo(() => {
+    return bloodBanks.filter(bank => {
+      const inventory = bank.inventory || bank.availability || {};
+      const hasBlood = Object.values(inventory).some(count => count > 0);
+      const matchesSearch = debouncedSearchTerm === '' || 
+        bank.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+        (bank.city && bank.city.toLowerCase().includes(debouncedSearchTerm.toLowerCase())) ||
+        (bank.address && bank.address.toLowerCase().includes(debouncedSearchTerm.toLowerCase()));
+      return hasBlood && matchesSearch;
+    });
+  }, [bloodBanks, debouncedSearchTerm]);
+
+  // Paginated blood banks for rendering
+  const paginatedBloodBanks = useMemo(() => {
+    return filteredBloodBanks.slice(0, displayCount);
+  }, [filteredBloodBanks, displayCount]);
+
+  // Reset display count when search changes
+  useEffect(() => {
+    setDisplayCount(12);
+  }, [debouncedSearchTerm]);
+
+  // Reset display count and search when modal closes
+  useEffect(() => {
+    if (!showAllBanksModal) {
+      setDisplayCount(12);
+      setSearchTerm('');
+      setDebouncedSearchTerm('');
+    }
+  }, [showAllBanksModal]);
+
   const handleScheduleVisit = (bank = null) => {
     if (!auth.currentUser) {
       setAuthMode('login');
@@ -165,40 +239,49 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
         throw new Error('Invalid date or time format');
       }
 
-      // Add the appointment to the donationsDone collection
+      // Add the appointment to the donations collection with proper structure
       const appointmentData = {
         userId: currentUser.uid,
+        userName: currentUser.displayName || 'Anonymous',
+        userEmail: currentUser.email || '',
         type: 'appointment',
         bankName: selectedBank.name,
-        date: parsedDate,
+        bankId: selectedBank.id || selectedBank.name,
+        appointmentDate: parsedDate.toISOString(),
         time: appointmentTime,
-        location: selectedBank.location,
+        location: selectedBank.location || selectedBank.city || 'Unknown',
+        city: selectedBank.city || 'Unknown',
         status: 'upcoming',
         createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       };
-      const appointmentRef = await addDoc(collection(db, 'donationsDone'), appointmentData);
+      const appointmentRef = await addDoc(collection(db, 'donations'), appointmentData);
+      logger.info('✅ Appointment scheduled successfully:', appointmentRef.id);
 
-      // Update the parent component's donations state
-      setDonations(prev => [...prev, {
-        id: appointmentRef.id,
-        type: 'appointment',
-        bankName: selectedBank.name,
-        date: parsedDate,
-        time: appointmentTime,
-        location: selectedBank.location,
-      }]);
+      // Update parent state if setter function is provided (optional)
+      // The real-time Firebase listener in useDonations hook will also update automatically
+      if (setDonations && typeof setDonations === 'function') {
+        setDonations(prev => [...prev, {
+          id: appointmentRef.id,
+          type: 'appointment',
+          bankName: selectedBank.name,
+          date: parsedDate,
+          time: appointmentTime,
+          location: selectedBank.location,
+        }]);
+      }
 
       setModalHeading('Appointment Scheduled Successfully!');
-      setModalMessage(`Appointment scheduled at ${selectedBank.name} on ${appointmentDate} at ${appointmentTime}`);
+      setModalMessage(`Appointment scheduled at ${selectedBank.name} on ${appointmentDate} at ${appointmentTime}. Check the Track section to see your upcoming appointment.`);
       setShowSuccessModal(true);
       setShowScheduleModal(false);
       setAppointmentDate('');
       setAppointmentTime('');
       setSelectedBank(null);
     } catch (error) {
-      console.error("Error scheduling appointment:", error);
+      logger.error("Error scheduling appointment:", error);
       setModalHeading('Error');
-      setModalMessage('There was an error scheduling your appointment. Please try again.');
+      setModalMessage(`There was an error scheduling your appointment: ${error.message}. Please try again.`);
       setShowSuccessModal(true);
     }
   };
@@ -242,7 +325,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
         setShowSuccessModal(true);
       }
     } catch (error) {
-      console.error('Error sending OTP:', error);
+      logger.error('Error sending OTP:', error);
       setModalHeading('Error');
       setModalMessage('Failed to send OTP. Please try again.');
       setShowSuccessModal(true);
@@ -282,7 +365,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
         setShowSuccessModal(true);
       }
     } catch (error) {
-      console.error('Error verifying OTP:', error);
+      logger.error('Error verifying OTP:', error);
       setModalHeading('Error');
       setModalMessage('Failed to verify OTP. Please try again.');
       setShowSuccessModal(true);
@@ -339,7 +422,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
       setModalMessage(`Successfully registered for ${drive.title} on ${drive.startDate.split('T')[0]}`);
       setShowSuccessModal(true);
     } catch (error) {
-      console.error("Error registering for drive:", error);
+      logger.error("Error registering for drive:", error);
       setModalHeading('Error');
       setModalMessage('There was an error registering for this blood drive. Please try again.');
       setShowSuccessModal(true);
@@ -375,7 +458,7 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
       setModalMessage(`Successfully unregistered from ${drive.title} on ${drive.startDate.split('T')[0]}`);
       setShowSuccessModal(true);
     } catch (error) {
-      console.error("Error unregistering from drive:", error);
+      logger.error("Error unregistering from drive:", error);
       setModalHeading('Error');
       setModalMessage('There was an error unregistering from this blood drive. Please try again.');
       setShowSuccessModal(true);
@@ -448,11 +531,25 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
           <div className="flex items-center justify-between mb-8">
             <div>
               <h3 className="text-2xl font-bold text-gray-900 mb-2">Nearby Blood Banks</h3>
-              <p className="text-gray-600">Find blood banks in your area with real-time availability</p>
+              <p className="text-gray-600">
+                {userProfile?.bloodType 
+                  ? `Showing banks with ${userProfile.bloodType} blood available`
+                  : 'Find blood banks in your area with real-time availability'}
+              </p>
             </div>
-            <div className="hidden md:flex items-center bg-red-50 px-4 py-2 rounded-full">
-              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse mr-2"></div>
-              <span className="text-sm font-medium text-red-700">Live Updates</span>
+            <div className="flex items-center space-x-3">
+              <div className="hidden md:flex items-center bg-red-50 px-4 py-2 rounded-full">
+                <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse mr-2"></div>
+                <span className="text-sm font-medium text-red-700">Live Updates</span>
+              </div>
+              {bloodBanks.length > 3 && (
+                <button
+                  onClick={() => setShowAllBanksModal(true)}
+                  className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg font-medium transition-colors text-sm"
+                >
+                  View All ({bloodBanks.length})
+                </button>
+              )}
             </div>
           </div>
 
@@ -505,11 +602,22 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {bloodBanks
                   .filter(bank => {
-                    // Only include blood banks with at least one blood group having count > 0
-                    const availableBloodGroups = Object.entries(bank.availability || {}).filter(
-                      ([_, count]) => count > 0
-                    );
-                    return availableBloodGroups.length > 0;
+                    // Prioritize banks that have user's blood type available
+                    const inventory = bank.inventory || bank.availability || {};
+                    if (userProfile?.bloodType) {
+                      return inventory[userProfile.bloodType] > 0;
+                    }
+                    // If no blood type, show banks with any blood available
+                    return Object.values(inventory).some(count => count > 0);
+                  })
+                  .sort((a, b) => {
+                    // Sort by user's blood type availability first, then by distance
+                    if (userProfile?.bloodType) {
+                      const aHas = (a.inventory || a.availability || {})[userProfile.bloodType] || 0;
+                      const bHas = (b.inventory || b.availability || {})[userProfile.bloodType] || 0;
+                      if (aHas !== bHas) return bHas - aHas;
+                    }
+                    return (a.distance || 0) - (b.distance || 0);
                   })
                   .slice(0, 3)
                   .map((bank, index) => {
@@ -883,6 +991,160 @@ export default function DonateBloodSection({ setActiveSection, userProfile, setS
         heading={modalHeading}
         message={modalMessage}
       />
+
+      {/* View All Blood Banks Modal */}
+      {showAllBanksModal && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden shadow-2xl transform transition-transform animate-in slide-in-from-bottom-4 duration-300">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-red-500 to-pink-500 p-6 text-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-2xl font-bold mb-1">All Blood Banks</h3>
+                  <p className="text-red-100">
+                    {bloodBanks.length} blood banks found • {userProfile?.bloodType && `Showing ${userProfile.bloodType} availability`}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowAllBanksModal(false)}
+                  className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+            </div>
+
+            {/* Search Bar */}
+            <div className="p-6 border-b border-gray-200">
+              <input
+                type="text"
+                placeholder="Search by name, location, or blood type..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+              />
+            </div>
+
+            {/* Blood Banks List */}
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-200px)]" style={{ willChange: 'scroll-position' }}>
+              <div className="grid md:grid-cols-2 gap-4" style={{ willChange: 'contents' }}>
+                {paginatedBloodBanks.map((bank) => {
+                    const inventory = bank.inventory || bank.availability || {};
+                    const userBloodAvailable = userProfile?.bloodType && inventory[userProfile.bloodType] > 0;
+
+                    return (
+                      <div 
+                        key={bank.id}
+                        style={{ containIntrinsicSize: 'auto 200px' }}
+                        className={`bg-white border-2 rounded-xl p-4 hover:shadow-lg transition-shadow duration-200 ${
+                          userBloodAvailable ? 'border-green-300 bg-green-50/30' : 'border-gray-200'
+                        }`}
+                      >
+                        {/* Compact Header */}
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1">
+                            <div className="flex items-center space-x-2 mb-1">
+                              <h4 className="font-bold text-gray-900">{bank.name}</h4>
+                              {userBloodAvailable && (
+                                <span className="bg-green-500 text-white text-xs px-2 py-0.5 rounded-full font-medium">
+                                  {userProfile.bloodType} ✓
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-gray-600 flex items-center">
+                              <MapPin size={14} className="mr-1 text-red-500" />
+                              {bank.city || bank.displayLocation || 'Location available'}
+                            </p>
+                          </div>
+                          <div className="flex items-center space-x-1">
+                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                            <span className="text-xs text-gray-500">Live</span>
+                          </div>
+                        </div>
+
+                        {/* Compact Blood Availability */}
+                        <div className="mb-3">
+                          <div className="flex flex-wrap gap-1.5">
+                            {Object.entries(inventory)
+                              .filter(([_, count]) => count > 0)
+                              .slice(0, 8)
+                              .map(([type, count]) => (
+                                <div
+                                  key={type}
+                                  className={`px-2 py-1 rounded text-xs font-semibold ${
+                                    userProfile?.bloodType === type
+                                      ? 'bg-green-500 text-white'
+                                      : count < 5
+                                      ? 'bg-orange-100 text-orange-700'
+                                      : 'bg-gray-100 text-gray-700'
+                                  }`}
+                                >
+                                  {type}: {count}
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+
+                        {/* Compact Actions */}
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              handleScheduleVisit(bank);
+                              setShowAllBanksModal(false);
+                            }}
+                            className="flex-1 bg-red-500 hover:bg-red-600 text-white py-2 rounded-lg text-sm font-medium transition-colors duration-150"
+                          >
+                            Schedule
+                          </button>
+                          <a
+                            href={`tel:${bank.phone || bank.contactPhone || ''}`}
+                            className="p-2 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors duration-150"
+                          >
+                            <Phone size={16} className="text-blue-600" />
+                          </a>
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${bank.latitude || bank.coordinates?.latitude},${bank.longitude || bank.coordinates?.longitude}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-2 bg-green-50 hover:bg-green-100 rounded-lg transition-colors duration-150"
+                          >
+                            <MapPin size={16} className="text-green-600" />
+                          </a>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+
+              {/* Load More Button */}
+              {paginatedBloodBanks.length < filteredBloodBanks.length && (
+                <div className="mt-6 text-center">
+                  <button
+                    onClick={() => setDisplayCount(prev => prev + 12)}
+                    className="bg-red-500 hover:bg-red-600 text-white px-8 py-3 rounded-lg font-semibold transition-colors shadow-md hover:shadow-lg"
+                  >
+                    Load More ({paginatedBloodBanks.length} of {filteredBloodBanks.length})
+                  </button>
+                </div>
+              )}
+
+              {/* Showing count */}
+              {filteredBloodBanks.length > 0 && (
+                <div className="mt-4 text-center text-sm text-gray-500">
+                  Showing {paginatedBloodBanks.length} of {filteredBloodBanks.length} blood banks
+                </div>
+              )}
+
+              {/* No Results */}
+              {filteredBloodBanks.length === 0 && (
+                <div className="text-center py-12">
+                  <p className="text-gray-500">No blood banks found matching your search.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

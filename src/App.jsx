@@ -1,20 +1,34 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { I18nextProvider } from 'react-i18next';
-import i18n from './i18n'; // Assuming you have i18n setup
-import { ThemeProvider } from './context/ThemeContext';
+import { ThemeProvider, AuthProvider, EmergencyProvider } from './context';
+import { ToastProvider } from './context/ToastContext';
 import BloodHub from './components/BloodHub/BloodHub';
-import ProfileSection from './components/BloodHub/ProfileSection';
+import OfflineBanner from './components/common/OfflineBanner';
+import RefundPolicy from './pages/RefundPolicy';
+import TermsAndConditions from './pages/TermsAndConditions';
+import ShippingPolicy from './pages/ShippingPolicy';
+import PrivacyPolicy from './pages/PrivacyPolicy';
+import ContactUs from './pages/ContactUs';
 
 export default function App() {
   return (
     <ThemeProvider>
-      <I18nextProvider i18n={i18n}>
-        <Router>
-          <Routes>
-            <Route path="/*" element={<BloodHub />} />
-          </Routes>
-        </Router>
-      </I18nextProvider>
+      <AuthProvider>
+        <EmergencyProvider>
+          <ToastProvider>
+            <Router>
+              <OfflineBanner />
+              <Routes>
+                <Route path="/*" element={<BloodHub />} />
+                <Route path="/refund-policy" element={<RefundPolicy />} />
+<Route path="/terms-and-conditions" element={<TermsAndConditions />} />
+<Route path="/shipping-policy" element={<ShippingPolicy />} />
+<Route path="/privacy-policy" element={<PrivacyPolicy />} />
+<Route path="/contact-us" element={<ContactUs />} />
+              </Routes>
+            </Router>
+          </ToastProvider>
+        </EmergencyProvider>
+      </AuthProvider>
     </ThemeProvider>
   );
 }

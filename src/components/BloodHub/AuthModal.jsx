@@ -1,21 +1,29 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { X } from 'lucide-react';
 import { 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword,
   GoogleAuthProvider,
-  signInWithPopup
+  signInWithPopup,
+  sendEmailVerification
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc, query, collection, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../utils/firebase';
+import RoleSelector from '../common/RoleSelector';
+import PhoneInput from '../common/PhoneInput';
+import { USER_ROLES } from '../../constants/roles';
+import ForgotPasswordModal from './ForgotPasswordModal';
+import { useFocusTrap, useEscapeKey } from '../../utils/accessibility.jsx';
+import { validateEmail, validatePhone, sanitizeUserProfile, checkRateLimit } from '../../utils/security';
 
 const bloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
-export default function AuthModal({ show, setShow, authMode, setAuthMode, setIsLoggedIn }) {
+export default function AuthModal({ show, setShow, authMode, setAuthMode }) {
   const [formData, setFormData] = useState({
     email: '',
     password: '',
     name: '',
+    role: '', // Added role field
     bloodType: '',
     phone: '',
     dob: '',
@@ -26,38 +34,94 @@ export default function AuthModal({ show, setShow, authMode, setAuthMode, setIsL
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [animateIn, setAnimateIn] = useState(false);
-  const [showAdditionalDetails, setShowAdditionalDetails] = useState(false);
-  const [googleUserId, setGoogleUserId] = useState(null);
+  const [showAdditionalDetails, setShowAdditionalDetails] = useState(
+    sessionStorage.getItem('showAdditionalDetails') === 'true'
+  );
+  const [googleUserId, setGoogleUserId] = useState(
+    sessionStorage.getItem('googleUserId') || null
+  );
   const [isGoogleSignInInProgress, setIsGoogleSignInInProgress] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  
+  // Refs for accessibility
+  const modalRef = useRef(null);
+  const firstInputRef = useRef(null);
+  
+  // Use ref to immediately track profile completion mode (before React state updates)
+  // Initialize from sessionStorage to survive component remounts
+  const isProfileCompletionMode = useRef(
+    sessionStorage.getItem('isProfileCompletionMode') === 'true'
+  );
+
+  // Focus trap for modal accessibility
+  useFocusTrap(modalRef, show || showAdditionalDetails, firstInputRef);
+  
+  // Escape key to close modal (only if not in profile completion mode)
+  useEscapeKey(() => {
+    if (!isProfileCompletionMode.current && !showAdditionalDetails) {
+      handleClose();
+    }
+  }, show);
+
+  // Memoize blood type options to prevent re-renders
+  const bloodTypeOptions = useMemo(() => bloodTypes, []);
+
+  // Track component lifecycle
+  useEffect(() => {
+    // If we're in profile completion mode after remount, animate in and fetch user data
+    if (isProfileCompletionMode.current && googleUserId && auth.currentUser) {
+      // Animate in the modal
+      setTimeout(() => setAnimateIn(true), 10);
+      
+      // Pre-fill form with current user data
+      setFormData(prev => ({
+        ...prev,
+        name: auth.currentUser.displayName || prev.name || '',
+        email: auth.currentUser.email || prev.email || ''
+      }));
+    }
+  }, []);
 
   useEffect(() => {
     if (show) {
       setTimeout(() => setAnimateIn(true), 10);
     } else {
-      setAnimateIn(false);
-      setShowAdditionalDetails(false);
-      setGoogleUserId(null);
-      setFormData({
-        email: '',
-        password: '',
-        name: '',
-        bloodType: '',
-        phone: '',
-        dob: '',
-        lastDonated: '',
-        address: '',
-        city: ''
-      });
-      setError('');
-      setLoading(false);
-      setIsGoogleSignInInProgress(false);
+      // Only reset if we're NOT in the middle of Google sign-up profile completion
+      // Check REF first (immediate value), then state (delayed value)
+      if (isProfileCompletionMode.current || showAdditionalDetails || googleUserId) {
+        // DON'T reset anything - profile completion in progress
+      } else {
+        isProfileCompletionMode.current = false; // Reset ref when fully resetting
+        sessionStorage.removeItem('isProfileCompletionMode');
+        sessionStorage.removeItem('googleUserId');
+        sessionStorage.removeItem('showAdditionalDetails');
+        setAnimateIn(false);
+        setShowAdditionalDetails(false);
+        setGoogleUserId(null);
+        setFormData({
+          email: '',
+          password: '',
+          name: '',
+          role: '', // Reset role
+          bloodType: '',
+          phone: '',
+          dob: '',
+          lastDonated: '',
+          address: '',
+          city: ''
+        });
+        setError('');
+        setLoading(false);
+        setIsGoogleSignInInProgress(false);
+      }
     }
-  }, [show]);
+  }, [show, showAdditionalDetails, googleUserId]);
 
-  const handleChange = (e) => {
+  // Optimized input handler with useCallback to prevent re-renders
+  const handleChange = useCallback((e) => {
     const { name, value } = e.target;
-    setFormData({ ...formData, [name]: value });
-  };
+    setFormData(prev => ({ ...prev, [name]: value }));
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -67,35 +131,87 @@ export default function AuthModal({ show, setShow, authMode, setAuthMode, setIsL
     try {
       if (authMode === 'login') {
         await signInWithEmailAndPassword(auth, formData.email, formData.password);
-        setIsLoggedIn(true);
         setShow(false);
+        setFormData({
+          email: '',
+          password: '',
+          name: '',
+          role: '',
+          bloodType: '',
+          phone: '',
+          dob: '',
+          lastDonated: '',
+          address: '',
+          city: ''
+        });
       } else {
-        // Check if email already exists before creating a new user
-        const emailQuery = query(collection(db, 'users'), where('email', '==', formData.email));
-        const emailSnapshot = await getDocs(emailQuery);
-        if (!emailSnapshot.empty) {
-          throw new Error('auth/email-already-in-use');
+        // Validate required fields
+        if (!formData.role) {
+          setError('Please select your role (Donor or Recipient)');
+          return;
+        }
+        if (!formData.phone) {
+          setError('Please enter your phone number');
+          return;
+        }
+        if (!formData.bloodType) {
+          setError('Please select your blood group');
+          return;
         }
 
-        const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
+        // Generate email from phone number for Firebase Auth
+        // Format: +919876543210 -> 919876543210@raksetu.app
+        const phoneDigits = formData.phone.replace(/\D/g, '');
+        const generatedEmail = `${phoneDigits}@raksetu.app`;
+
+        // Check if phone/email already exists
+        const emailQuery = query(collection(db, 'users'), where('email', '==', generatedEmail));
+        const emailSnapshot = await getDocs(emailQuery);
+        if (!emailSnapshot.empty) {
+          throw new Error('This phone number is already registered. Please login instead.');
+        }
+
+        const userCredential = await createUserWithEmailAndPassword(auth, generatedEmail, formData.password);
         const user = userCredential.user;
 
         const userData = {
           name: formData.name,
-          email: formData.email,
+          email: generatedEmail, // Generated email for Firebase Auth
+          phone: formData.phone, // Twilio-compatible format: +919876543210
+          phoneNumber: formData.phone, // Alias for compatibility
           bloodType: formData.bloodType,
-          phone: formData.phone || '',
-          dob: formData.dob || '',
-          lastDonated: formData.lastDonated || '',
-          address: formData.address || '',
-          city: formData.city || '',
+          role: formData.role,
           createdAt: new Date().toISOString(),
+          emailVerified: false,
+          registrationType: 'phone', // Track registration method
         };
 
         await setDoc(doc(db, 'users', user.uid), userData);
-        
-        setIsLoggedIn(true);
+
+        // Send email verification
+        try {
+          await sendEmailVerification(user, {
+            url: window.location.origin + '/profile',
+            handleCodeInApp: false,
+          });
+        } catch (emailError) {
+          // Don't block signup if email fails
+        }
+
+        // Success - close modal and reset form
         setShow(false);
+        setFormData({
+          email: '',
+          password: '',
+          name: '',
+          role: '',
+          bloodType: '',
+          phone: '',
+          dob: '',
+          lastDonated: '',
+          address: '',
+          city: ''
+        });
       }
     } catch (error) {
       let errorMessage = error.message;
@@ -114,92 +230,167 @@ export default function AuthModal({ show, setShow, authMode, setAuthMode, setIsL
 
   const handleGoogleSignIn = async () => {
     if (isGoogleSignInInProgress) {
-      console.log('Google Sign-In already in progress, skipping...');
       return;
     }
 
-    setIsGoogleSignInInProgress(true);
     setLoading(true);
     setError('');
-    console.log('Starting Google Sign-In at:', new Date().toISOString());
-    
+    setIsGoogleSignInInProgress(true);
+
     try {
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-      console.log('Google Sign-In successful for user:', user.uid);
-
-      // Check if a user with this email already exists
       
+      if (!result || !result.user) {
+        throw new Error('No user data received from Google');
+      }
+      
+      const user = result.user;
 
+      // Check if user document exists
       const userDoc = await getDoc(doc(db, 'users', user.uid));
       
       if (!userDoc.exists()) {
-        await setDoc(doc(db, 'users', user.uid), {
+        // NEW USER - Create minimal profile and show profile completion form
+        
+        // IMMEDIATELY set ref to prevent modal from closing
+        isProfileCompletionMode.current = true;
+        sessionStorage.setItem('isProfileCompletionMode', 'true');
+        
+        try {
+          await setDoc(doc(db, 'users', user.uid), {
+            name: user.displayName || '',
+            email: user.email,
+            photoURL: user.photoURL || '',
+            phone: user.phoneNumber || '',
+            createdAt: new Date().toISOString(),
+            emailVerified: user.emailVerified || false
+          });
+        } catch (docError) {
+          isProfileCompletionMode.current = false; // Reset on error
+          throw docError; // Re-throw to be caught by outer catch
+        }
+        
+        // Pre-fill form data with Google info
+        setFormData(prev => ({
+          ...prev,
           name: user.displayName || '',
           email: user.email,
-          bloodType: '',
-          phone: user.phoneNumber || '',
-          photoURL: user.photoURL || '',
-          createdAt: new Date().toISOString()
-        });
-        console.log('User document created for new user:', user.uid);
+          phone: user.phoneNumber || ''
+        }));
+        
+        // Show profile completion modal
         setGoogleUserId(user.uid);
+        sessionStorage.setItem('googleUserId', user.uid);
+        
         setShowAdditionalDetails(true);
+        sessionStorage.setItem('showAdditionalDetails', 'true');
+        
+        setLoading(false);
+        
+        setIsGoogleSignInInProgress(false);
+        
+        return; // IMPORTANT: Don't execute finally block
       } else {
-        console.log('User already exists, logging in:', user.uid);
-        setIsLoggedIn(true);
-        setShow(false);
+        // EXISTING USER - Check if profile is complete
+        const userData = userDoc.data();
+        
+        if (!userData.role || !userData.phone || !userData.bloodType) {
+          // User exists but profile incomplete - show profile completion
+          
+          // IMMEDIATELY set ref to prevent modal from closing
+          isProfileCompletionMode.current = true;
+          sessionStorage.setItem('isProfileCompletionMode', 'true');
+          
+          setFormData(prev => ({
+            ...prev,
+            name: userData.name || '',
+            email: userData.email || '',
+            bloodType: userData.bloodType || '',
+            phone: userData.phone || '',
+            dob: userData.dob || '',
+            city: userData.city || ''
+          }));
+          setGoogleUserId(user.uid);
+          sessionStorage.setItem('googleUserId', user.uid);
+          setShowAdditionalDetails(true);
+          sessionStorage.setItem('showAdditionalDetails', 'true');
+          setLoading(false); // Allow user to fill form
+          setIsGoogleSignInInProgress(false);
+          return; // IMPORTANT: Don't execute finally block
+        } else {
+          // User has complete profile - login successfully and close modal
+          // First clear Google states, then close modal
+          setShowAdditionalDetails(false);
+          setGoogleUserId(null);
+          setFormData({
+            email: '',
+            password: '',
+            name: '',
+            role: '',
+            bloodType: '',
+            phone: '',
+            dob: '',
+            lastDonated: '',
+            address: '',
+            city: ''
+          });
+          setShow(false); // Close modal AFTER clearing states
+        }
       }
     } catch (error) {
-      console.error("Google Sign-In error:", error.message, error.code);
       if (error.code === 'auth/account-exists-with-different-credential') {
-  setError('This email is already registered with a different sign-in method. Please sign in using that method and link your Google account.');
-} else {
-  setError('Failed to sign in with Google: ' + error.message);
-}
+        setError('This email is already registered with a different sign-in method. Please sign in using that method and link your Google account.');
+      } else if (error.code === 'auth/popup-closed-by-user') {
+        setError('Sign-in cancelled. Please try again.');
+      } else {
+        setError('Failed to sign in with Google: ' + error.message);
+      }
     } finally {
-      setLoading(false);
-      setIsGoogleSignInInProgress(false);
-      console.log('Google Sign-In process completed at:', new Date().toISOString());
+      // Don't reset states here - each path handles its own loading state
+      // New user path: setLoading(false) after setting showAdditionalDetails
+      // Existing user paths: handled in their respective branches
     }
   };
 
   const handleAdditionalDetailsSubmit = async (e) => {
     e.preventDefault();
-    console.log('Form submitted at:', new Date().toISOString());
     
-    if (!formData.bloodType) {
-      setError('Please select a blood type.');
-      console.log('Validation failed: Blood type is required');
+    // Validate required fields
+    if (!formData.role) {
+      setError('Please select your role (Donor or Recipient)');
+      return;
+    }
+    if (!formData.name || !formData.phone || !formData.bloodType) {
+      setError('Please fill in all required fields');
       return;
     }
 
     setLoading(true);
     setError('');
-    console.log('Loading state set to true');
 
-    if (!googleUserId) {
+    // Use googleUserId from state, or fallback to current user
+    const userId = googleUserId || auth.currentUser?.uid;
+    
+    if (!userId) {
       setError('User ID is missing. Please try signing up again.');
       setLoading(false);
-      console.log('Error: googleUserId is null');
       return;
     }
 
     try {
       const userData = {
+        name: formData.name,
+        phone: formData.phone, // Twilio-compatible format from PhoneInput
+        phoneNumber: formData.phone, // Alias for compatibility
         bloodType: formData.bloodType,
-        phone: formData.phone || '',
-        dob: formData.dob || '',
-        lastDonated: formData.lastDonated || '',
-        city: formData.city || '',
-        updatedAt: new Date().toISOString()
+        role: formData.role,
+        updatedAt: new Date().toISOString(),
+        emailVerified: auth.currentUser?.emailVerified || false,
+        registrationType: 'google', // Track registration method
       };
 
-      console.log('Updating user with ID:', googleUserId);
-      console.log('Data to update:', userData);
-
-      const userDocRef = doc(db, 'users', googleUserId);
+      const userDocRef = doc(db, 'users', userId);
 
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error('Operation timed out. Please try again.')), 10000);
@@ -209,12 +400,29 @@ export default function AuthModal({ show, setShow, authMode, setAuthMode, setIsL
         updateDoc(userDocRef, userData),
         timeoutPromise
       ]);
-
-      console.log('User details updated successfully');
-      setIsLoggedIn(true);
+      
+      // Clear profile completion mode and close modal
+      isProfileCompletionMode.current = false;
+      sessionStorage.removeItem('isProfileCompletionMode');
+      sessionStorage.removeItem('googleUserId');
+      sessionStorage.removeItem('showAdditionalDetails');
+      
+      setShowAdditionalDetails(false);
       setShow(false);
+      setFormData({
+        email: '',
+        password: '',
+        name: '',
+        role: '',
+        bloodType: '',
+        phone: '',
+        dob: '',
+        lastDonated: '',
+        address: '',
+        city: ''
+      });
+      setGoogleUserId(null);
     } catch (error) {
-      console.error("Error updating additional details:", error.message, error.code);
       let errorMessage = 'Failed to save additional details. Please try again.';
       
       if (error.message.includes('permission-denied')) {
@@ -228,133 +436,164 @@ export default function AuthModal({ show, setShow, authMode, setAuthMode, setIsL
       setError(errorMessage);
     } finally {
       setLoading(false);
-      console.log('Loading state reset to false');
     }
   };
 
   const handleClose = () => {
+    // Don't allow closing if we're in profile completion mode (check ref for immediate value)
+    if (isProfileCompletionMode.current) {
+      return;
+    }
+    if (showAdditionalDetails && googleUserId) {
+      return;
+    }
     setAnimateIn(false);
     setTimeout(() => setShow(false), 300);
   };
 
-  if (!show) return null;
+  // Override show prop if we're in profile completion mode
+  // Check ref first (immediate), then state (delayed)
+  const shouldShowModal = show || isProfileCompletionMode.current || (showAdditionalDetails && googleUserId);
+
+  if (!shouldShowModal) {
+    return null;
+  }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div 
+      className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4 animate-in fade-in duration-200"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="auth-modal-title"
+    >
       <div 
-        className={`bg-white rounded-xl shadow-xl w-full max-w-md transform transition-all duration-300 ${
-          animateIn ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
+        ref={modalRef}
+        className={`notranslate bg-white w-full max-w-md sm:rounded-2xl rounded-t-3xl shadow-2xl max-h-[95vh] overflow-y-auto transform transition-all duration-300 ${
+          animateIn ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 sm:translate-y-0 scale-95'
         }`}
+        style={{ willChange: 'transform, opacity', transform: 'translateZ(0)' }}
       >
-        <div className="p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="text-2xl font-bold text-gray-800">
-              {showAdditionalDetails ? 'Complete Your Profile' : authMode === 'login' ? 'Welcome Back' : 'Join Raksetu'}
+        <div className="p-6 sm:p-8">
+          <div className="flex justify-between items-center mb-6 sm:mb-8">
+            <h3 id="auth-modal-title" className="text-xl sm:text-2xl font-bold text-gray-800">
+              {(showAdditionalDetails || isProfileCompletionMode.current) ? 'Complete Your Profile' : authMode === 'login' ? 'Welcome Back' : 'Join Raksetu'}
             </h3>
             <button 
               onClick={handleClose}
-              className="text-gray-500 hover:text-gray-700 transition-colors p-1 rounded-full hover:bg-gray-100"
+              className="text-gray-500 hover:text-gray-700 transition-colors p-2 rounded-xl hover:bg-gray-100 -mr-2"
+              aria-label="Close authentication modal"
+              disabled={isProfileCompletionMode.current || showAdditionalDetails}
             >
-              <X size={20} />
+              <X size={22} />
             </button>
           </div>
 
-          {showAdditionalDetails ? (
-            <form onSubmit={handleAdditionalDetailsSubmit} className="space-y-4">
+          {(showAdditionalDetails || isProfileCompletionMode.current) ? (
+            <form onSubmit={handleAdditionalDetailsSubmit} className="space-y-5" noValidate>
               {error && (
-                <div className="mb-6 p-3 bg-red-50 text-red-600 rounded-lg text-sm border border-red-100">
+                <div 
+                  className="mb-4 p-3 bg-red-50 text-red-600 rounded-lg text-sm border border-red-100"
+                  role="alert"
+                  aria-live="assertive"
+                >
                   {error}
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Blood Type</label>
-                  <select
-                    name="bloodType"
-                    value={formData.bloodType}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                    required
-                  >
-                    <option value="">Select</option>
-                    {bloodTypes.map(type => (
-                      <option key={type} value={type}>{type}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                  <input
-                    type="tel"
-                    name="phone"
-                    value={formData.phone}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                    placeholder="Your phone number"
-                  />
-                </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                <p className="text-sm text-blue-800">
+                  <span className="font-semibold">✨ Complete your profile!</span> Fill in your details to get started.
+                </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Date of Birth</label>
-                  <input
-                    type="date"
-                    name="dob"
-                    value={formData.dob}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Last Donated</label>
-                  <input
-                    type="date"
-                    name="lastDonated"
-                    value={formData.lastDonated}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
-
+              {/* Name Field */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
+                <label htmlFor="profile-name" className="block text-sm font-medium text-gray-700 mb-2">
+                  Full Name <span className="text-red-500" aria-label="required">*</span>
+                </label>
                 <input
+                  id="profile-name"
+                  ref={firstInputRef}
                   type="text"
-                  name="city"
-                  value={formData.city}
+                  name="name"
+                  value={formData.name}
                   onChange={handleChange}
-                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                  placeholder="Your city"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all"
+                  placeholder="Enter your full name"
+                  required
+                  aria-required="true"
+                  aria-invalid={!formData.name && error ? 'true' : 'false'}
                 />
               </div>
 
+              {/* Phone Number with Country Code */}
+              <PhoneInput
+                value={formData.phone}
+                onChange={(phone) => setFormData({ ...formData, phone })}
+                error={error && !formData.phone ? 'Phone number is required' : ''}
+                required
+              />
+
+              {/* Blood Group Selection */}
+              <div>
+                <label htmlFor="profile-bloodtype" className="block text-sm font-medium text-gray-700 mb-2">
+                  Blood Group <span className="text-red-500" aria-label="required">*</span>
+                </label>
+                <select
+                  id="profile-bloodtype"
+                  name="bloodType"
+                  value={formData.bloodType}
+                  onChange={handleChange}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all"
+                  required
+                  aria-required="true"
+                  aria-invalid={!formData.bloodType && error ? 'true' : 'false'}
+                >
+                  <option value="">Select your blood group</option>
+                  {bloodTypes.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Role Selection for Google Sign-in */}
+              <RoleSelector
+                selectedRole={formData.role}
+                onRoleSelect={(role) => setFormData({ ...formData, role })}
+                error={error && !formData.role ? 'Please select your role to continue' : ''}
+              />
+
               <button
                 type="submit"
-                disabled={loading}
-                className={`w-full bg-red-600 text-white py-3 rounded-lg font-medium flex items-center justify-center transition-opacity ${
-                  loading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-700'
+                disabled={loading || !formData.role || !formData.name || !formData.phone || !formData.bloodType}
+                className={`w-full bg-gradient-to-r from-red-600 to-red-700 text-white py-3 rounded-lg font-semibold flex items-center justify-center transition-all ${
+                  loading || !formData.role || !formData.name || !formData.phone || !formData.bloodType
+                    ? 'opacity-50 cursor-not-allowed' 
+                    : 'hover:shadow-lg hover:shadow-red-600/30'
                 }`}
+                aria-label={loading ? 'Completing registration' : 'Complete registration and create account'}
               >
                 {loading ? (
-                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                ) : null}
-                Save Details
+                  <>
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>Processing...</span>
+                  </>
+                ) : 'Complete Registration'}
               </button>
             </form>
           ) : (
             <>
-              <div className="mb-4">
+              <div className="mb-6">
                 <button
                   onClick={handleGoogleSignIn}
                   disabled={loading || isGoogleSignInInProgress}
-                  className={`w-full flex items-center justify-center gap-2 bg-white border border-gray-300 text-gray-700 py-3 px-4 rounded-lg font-medium transition-opacity ${
-                    loading || isGoogleSignInInProgress ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'
+                  className={`w-full flex items-center justify-center gap-2 sm:gap-3 bg-white border-2 border-gray-300 text-gray-700 py-3.5 sm:py-3 px-4 rounded-lg font-medium transition-all shadow-sm hover:shadow-md text-base sm:text-sm active:scale-[0.98] ${
+                    loading || isGoogleSignInInProgress ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50 hover:border-gray-400'
                   }`}
                 >
                   <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -379,109 +618,81 @@ export default function AuthModal({ show, setShow, authMode, setAuthMode, setIsL
                 </div>
               )}
 
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-5">
                 {authMode === 'register' && (
                   <>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
                       <input
                         type="text"
                         name="name"
                         value={formData.name}
                         onChange={handleChange}
-                        className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                        className="w-full px-4 py-3 sm:py-2.5 text-base sm:text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all"
                         placeholder="Enter your full name"
                         required
                       />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Blood Type</label>
-                        <select
-                          name="bloodType"
-                          value={formData.bloodType}
-                          onChange={handleChange}
-                          className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                          required
-                        >
-                          <option value="">Select</option>
-                          {bloodTypes.map(type => (
-                            <option key={type} value={type}>{type}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                        <input
-                          type="tel"
-                          name="phone"
-                          value={formData.phone}
-                          onChange={handleChange}
-                          className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                          placeholder="Your phone number"
-                        />
-                      </div>
-                    </div>
+                    {/* Phone Number with Country Code */}
+                    <PhoneInput
+                      value={formData.phone}
+                      onChange={(phone) => setFormData({ ...formData, phone })}
+                      error={error && !formData.phone ? 'Phone number is required' : ''}
+                      required
+                    />
 
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Date of Birth</label>
-                        <input
-                          type="date"
-                          name="dob"
-                          value={formData.dob}
-                          onChange={handleChange}
-                          className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Last Donated</label>
-                        <input
-                          type="date"
-                          name="lastDonated"
-                          value={formData.lastDonated}
-                          onChange={handleChange}
-                          className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                        />
-                      </div>
-                    </div>
-
+                    {/* Blood Group Selection */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
-                      <input
-                        type="text"
-                        name="city"
-                        value={formData.city}
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Blood Group</label>
+                      <select
+                        name="bloodType"
+                        value={formData.bloodType}
                         onChange={handleChange}
-                        className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                        placeholder="Your city"
-                      />
+                        className="w-full px-4 py-3 sm:py-2.5 text-base sm:text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all"
+                        required
+                      >
+                        <option value="">Select your blood group</option>
+                        {bloodTypes.map((type) => (
+                          <option key={type} value={type}>
+                            {type}
+                          </option>
+                        ))}
+                      </select>
                     </div>
+
+                    {/* Role Selection - REQUIRED for registration */}
+                    <RoleSelector
+                      selectedRole={formData.role}
+                      onRoleSelect={(role) => setFormData({ ...formData, role })}
+                      error={error && !formData.role ? 'Please select your role' : ''}
+                    />
                   </>
                 )}
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                  <input
-                    type="email"
-                    name="email"
-                    value={formData.email}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                    placeholder="Enter your email"
-                    required
-                  />
-                </div>
+                {authMode === 'login' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                    <input
+                      type="email"
+                      name="email"
+                      value={formData.email}
+                      onChange={handleChange}
+                      className="w-full px-4 py-3 sm:py-2.5 text-base sm:text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all"
+                      placeholder="Enter your email"
+                      required
+                    />
+                  </div>
+                )}
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
                   <input
                     type="password"
                     name="password"
                     value={formData.password}
                     onChange={handleChange}
-                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    className="w-full px-4 py-3 sm:py-2.5 text-base sm:text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all"
                     placeholder="Enter your password"
                     required
                   />
@@ -490,7 +701,7 @@ export default function AuthModal({ show, setShow, authMode, setAuthMode, setIsL
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full bg-red-600 hover:bg-red-700 text-white py-3 rounded-lg transition-colors font-medium flex items-center justify-center"
+                  className="w-full bg-red-600 hover:bg-red-700 active:bg-red-800 text-white py-3.5 sm:py-3 rounded-lg transition-all font-medium flex items-center justify-center text-base sm:text-sm shadow-sm hover:shadow-md active:scale-[0.98]"
                 >
                   {loading ? (
                     <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -500,6 +711,19 @@ export default function AuthModal({ show, setShow, authMode, setAuthMode, setIsL
                   ) : null}
                   {authMode === 'login' ? 'Sign In' : 'Register'}
                 </button>
+                
+                {/* Forgot Password link (only show on login) */}
+                {authMode === 'login' && (
+                  <div className="text-center mt-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotPassword(true)}
+                      className="text-sm text-red-600 hover:text-red-800 font-medium hover:underline"
+                    >
+                      Forgot Password?
+                    </button>
+                  </div>
+                )}
               </form>
 
               <div className="mt-6 text-center text-sm text-gray-600">
@@ -529,6 +753,12 @@ export default function AuthModal({ show, setShow, authMode, setAuthMode, setIsL
           )}
         </div>
       </div>
+      
+      {/* Forgot Password Modal */}
+      <ForgotPasswordModal 
+        show={showForgotPassword}
+        setShow={setShowForgotPassword}
+      />
     </div>
   );
 }

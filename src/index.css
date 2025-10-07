@@ -17,6 +17,16 @@ code {
   from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(100px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.5s ease-out;
+}
+
 .hue-rotate-90 {
   filter: hue-rotate(90deg);
 }
@@ -64,4 +74,65 @@ code {
   .space-x-4 > * + * {
     margin-left: 1rem;
   }
+}
+
+/* Google Translate positioning */
+#google_translate_element {
+  position: fixed;
+  top: 17px;
+  right: 20px;
+  z-index: 9999;
+}
+
+/* Hide the Google Translate banner frame that pushes content down */
+body {
+  top: 0 !important;
+}
+
+.goog-te-banner-frame {
+  display: none !important;
+}
+
+/* Ensure the translate bar doesn't cover header */
+#goog-gt-tt, .goog-te-balloon-frame {
+  display: none !important;
+}
+
+/* Make sure skiptranslate class doesn't add spacing */
+.skiptranslate {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Ensure iframe doesn't push content */
+.skiptranslate iframe {
+  display: none !important;
+}
+
+/* Hide "Powered by Google Translate" text and branding */
+.goog-logo-link {
+  display: none !important;
+}
+
+/* Hide only the "Powered by" text, keep the dropdown visible */
+.goog-te-gadget > span > a {
+  display: none !important;
+}
+
+.goog-te-gadget > span {
+  display: none !important;
+}
+
+/* Keep the dropdown combo visible */
+.goog-te-gadget .goog-te-combo {
+  display: inline-block !important;
+  margin: 0 !important;
+  padding: 4px 8px !important;
+  color: #333 !important;
+  background: white !important;
+  border: 1px solid #ccc !important;
+  border-radius: 4px !important;
+  width: auto !important;
+  max-width: 155px !important;
+  font-size: 13px !important;
 }

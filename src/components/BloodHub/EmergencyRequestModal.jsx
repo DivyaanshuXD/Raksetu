@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
-import { MapPin } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { MapPin, AlertTriangle, Loader2 } from 'lucide-react';
 import Modal from './Modal';
 import { addEmergencyRequest } from '../services/emergencyService';
+import { auth } from '../utils/firebase';
 import axios from 'axios';
+import LocationAutocomplete from './LocationAutocomplete';
 
 const bloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
@@ -18,53 +20,44 @@ export default function EmergencyRequestModal({ show, setShow, setShowSuccess, u
     notes: '',
     location: '',
   });
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [locationCoordinates, setLocationCoordinates] = useState(null);
   const [loadingLocation, setLoadingLocation] = useState(false);
-  const [errorMessage, setErrorMessage] = useState(''); // Add state for error message
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
-  const handleGetLocation = () => {
-    setLoadingLocation(true);
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const lat = position.coords.latitude;
-          const lon = position.coords.longitude;
-          const displayName = await reverseGeocode(lat, lon);
-          setEmergencyForm({ ...emergencyForm, location: displayName });
-          setLoadingLocation(false);
-        },
-        (error) => {
-          console.error('Error getting location:', error);
-          setEmergencyForm({ ...emergencyForm, location: 'Unable to get location' });
-          setLoadingLocation(false);
-        }
-      );
+  // Optimized form change handler with useCallback to prevent re-renders
+  const handleChange = useCallback((field, value) => {
+    setEmergencyForm(prev => ({ ...prev, [field]: value }));
+  }, []);
+
+  // Handle location selection from autocomplete
+  const handleLocationSelect = useCallback((locationData) => {
+    if (locationData) {
+      handleChange('location', locationData.address);
+      setLocationCoordinates(locationData.coordinates);
     } else {
-      setEmergencyForm({ ...emergencyForm, location: 'Geolocation not supported' });
-      setLoadingLocation(false);
+      // Location cleared
+      handleChange('location', '');
+      setLocationCoordinates(null);
     }
-  };
-
-  const reverseGeocode = async (latitude, longitude) => {
-    try {
-      const response = await axios.get(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18`, {
-        headers: {
-          'User-Agent': 'RaksetuApp/1.0 (makrostake@gmail.com)'
-        }
-      });
-      return response.data.display_name || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-    } catch (error) {
-      console.error('Reverse geocoding failed:', error);
-      return `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-    }
-  };
+  }, [handleChange]);
 
   const handleEmergencyRequest = async (e) => {
     e.preventDefault();
+    
+    const currentUser = auth.currentUser;
+    if (currentUser && !currentUser.emailVerified) {
+      setErrorMessage('Please verify your email address before making emergency requests. Check your inbox for the verification email.');
+      return;
+    }
+    
     setIsSubmitting(true);
-    setErrorMessage(''); // Reset error message
+    setErrorMessage('');
+    
     try {
-      await addEmergencyRequest(emergencyForm, userLocation);
+      // Use stored coordinates from autocomplete, fallback to userLocation
+      const coordinates = locationCoordinates || userLocation;
+      await addEmergencyRequest(emergencyForm, coordinates);
       setEmergencyForm({
         patientName: '',
         hospital: '',
@@ -76,6 +69,7 @@ export default function EmergencyRequestModal({ show, setShow, setShowSuccess, u
         notes: '',
         location: '',
       });
+      setLocationCoordinates(null);
       setShow(false);
       setShowSuccess(true);
     } catch (error) {
@@ -89,134 +83,198 @@ export default function EmergencyRequestModal({ show, setShow, setShowSuccess, u
   if (!show) return null;
 
   return (
-    <Modal onClose={() => setShow(false)} title="Request Emergency Blood">
+    <Modal onClose={() => setShow(false)} title="🆘 Request Emergency Blood">
       {errorMessage && (
-        <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
-          {errorMessage}
+        <div className="mb-4 p-4 bg-red-50 text-red-700 rounded-xl text-sm border border-red-200 animate-fade-in">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={18} />
+            <span>{errorMessage}</span>
+          </div>
         </div>
       )}
-      <form onSubmit={handleEmergencyRequest} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium mb-1">Patient Name</label>
+      
+      <form onSubmit={handleEmergencyRequest} className="space-y-5">
+        {/* Patient Name */}
+        <div className="group">
+          <label className="block text-sm font-semibold mb-2 text-gray-700 group-focus-within:text-red-600 transition-colors">
+            Patient Name *
+          </label>
           <input
             type="text"
             value={emergencyForm.patientName}
-            onChange={(e) => setEmergencyForm({ ...emergencyForm, patientName: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+            onChange={(e) => handleChange('patientName', e.target.value)}
+            className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all bg-white"
             placeholder="Enter patient name"
             required
           />
         </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Hospital</label>
+
+        {/* Hospital */}
+        <div className="group">
+          <label className="block text-sm font-semibold mb-2 text-gray-700 group-focus-within:text-red-600 transition-colors">
+            Hospital *
+          </label>
           <input
             type="text"
             value={emergencyForm.hospital}
-            onChange={(e) => setEmergencyForm({ ...emergencyForm, hospital: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+            onChange={(e) => handleChange('hospital', e.target.value)}
+            className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all bg-white"
             placeholder="Enter hospital name"
             required
           />
         </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Location</label>
-          <div className="flex">
+
+        {/* Location with Autocomplete */}
+        <div className="group">
+          <label className="block text-sm font-semibold mb-2 text-gray-700 group-focus-within:text-red-600 transition-colors">
+            Location *
+          </label>
+          <LocationAutocomplete
+            value={emergencyForm.location}
+            onChange={(value) => handleChange('location', value)}
+            onLocationSelect={handleLocationSelect}
+            placeholder="Search for location or use GPS"
+            required
+          />
+          {locationCoordinates && (
+            <div className="mt-2 text-xs text-green-600 flex items-center gap-1">
+              <span className="font-semibold">✓</span>
+              <span>Coordinates saved: {locationCoordinates.latitude.toFixed(4)}, {locationCoordinates.longitude.toFixed(4)}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Blood Type & Units */}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="group">
+            <label className="block text-sm font-semibold mb-2 text-gray-700 group-focus-within:text-red-600 transition-colors">
+              Blood Type *
+            </label>
+            <select
+              value={emergencyForm.bloodType}
+              onChange={(e) => handleChange('bloodType', e.target.value)}
+              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all bg-white"
+              required
+            >
+              {bloodTypes.map((type) => (
+                <option key={type} value={type}>{type}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="group">
+            <label className="block text-sm font-semibold mb-2 text-gray-700 group-focus-within:text-red-600 transition-colors">
+              Units Needed *
+            </label>
             <input
-              type="text"
-              value={emergencyForm.location}
-              onChange={(e) => setEmergencyForm({ ...emergencyForm, location: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-200 rounded-l-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-              placeholder="Enter location or click icon"
+              type="number"
+              value={emergencyForm.units}
+              onChange={(e) => handleChange('units', parseInt(e.target.value))}
+              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all bg-white"
+              min="1"
               required
             />
-            <button
-              type="button"
-              onClick={handleGetLocation}
-              disabled={loadingLocation}
-              className="bg-gray-200 hover:bg-gray-300 px-3 rounded-r-lg flex items-center justify-center"
-            >
-              {loadingLocation ? 'Loading...' : <MapPin size={16} />}
-            </button>
           </div>
         </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Blood Type</label>
-          <select
-            value={emergencyForm.bloodType}
-            onChange={(e) => setEmergencyForm({ ...emergencyForm, bloodType: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-            required
-          >
-            {bloodTypes.map((type) => (
-              <option key={type} value={type}>{type}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Units Needed</label>
-          <input
-            type="number"
-            value={emergencyForm.units}
-            onChange={(e) => setEmergencyForm({ ...emergencyForm, units: parseInt(e.target.value) })}
-            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-            min="1"
-            required
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Urgency</label>
+
+        {/* Urgency */}
+        <div className="group">
+          <label className="block text-sm font-semibold mb-2 text-gray-700 group-focus-within:text-red-600 transition-colors">
+            Urgency Level *
+          </label>
           <select
             value={emergencyForm.urgency}
-            onChange={(e) => setEmergencyForm({ ...emergencyForm, urgency: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+            onChange={(e) => handleChange('urgency', e.target.value)}
+            className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all bg-white"
             required
           >
-            <option value="Critical">Critical</option>
-            <option value="High">High</option>
-            <option value="Medium">Medium</option>
-            <option value="Low">Low</option>
+            <option value="Critical">🔴 Critical - Immediate</option>
+            <option value="High">🟠 High - Within hours</option>
+            <option value="Medium">🟡 Medium - Within a day</option>
+            <option value="Low">🟢 Low - Planned</option>
           </select>
         </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Contact Name</label>
-          <input
-            type="text"
-            value={emergencyForm.contactName}
-            onChange={(e) => setEmergencyForm({ ...emergencyForm, contactName: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-            placeholder="Enter contact name"
-            required
-          />
+
+        {/* Contact Information */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="group">
+            <label className="block text-sm font-semibold mb-2 text-gray-700 group-focus-within:text-red-600 transition-colors">
+              Contact Name *
+            </label>
+            <input
+              type="text"
+              value={emergencyForm.contactName}
+              onChange={(e) => handleChange('contactName', e.target.value)}
+              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all bg-white"
+              placeholder="Enter contact name"
+              required
+            />
+          </div>
+
+          <div className="group">
+            <label className="block text-sm font-semibold mb-2 text-gray-700 group-focus-within:text-red-600 transition-colors">
+              Contact Phone *
+            </label>
+            <input
+              type="tel"
+              value={emergencyForm.contactPhone}
+              onChange={(e) => handleChange('contactPhone', e.target.value)}
+              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all bg-white"
+              placeholder="Enter phone number"
+              required
+            />
+          </div>
         </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Contact Phone</label>
-          <input
-            type="tel"
-            value={emergencyForm.contactPhone}
-            onChange={(e) => setEmergencyForm({ ...emergencyForm, contactPhone: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-            placeholder="Enter phone number"
-            required
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Additional Notes</label>
+
+        {/* Additional Notes */}
+        <div className="group">
+          <label className="block text-sm font-semibold mb-2 text-gray-700 group-focus-within:text-red-600 transition-colors">
+            Additional Notes (Optional)
+          </label>
           <textarea
             value={emergencyForm.notes}
-            onChange={(e) => setEmergencyForm({ ...emergencyForm, notes: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-            placeholder="Enter any additional details"
+            onChange={(e) => handleChange('notes', e.target.value)}
+            className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all resize-none bg-white"
+            placeholder="Any additional information that might help donors"
             rows="3"
           />
         </div>
+
+        {/* Submit Button */}
         <button
           type="submit"
-          className="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg transition-colors font-medium"
+          className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 disabled:from-gray-400 disabled:to-gray-500 text-white py-4 rounded-xl transition-all font-bold text-base shadow-xl hover:shadow-2xl transform hover:scale-105 disabled:scale-100 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           disabled={isSubmitting}
         >
-          {isSubmitting ? 'Submitting...' : 'Submit Request'}
+          {isSubmitting ? (
+            <>
+              <Loader2 size={20} className="animate-spin" />
+              Submitting Request...
+            </>
+          ) : (
+            <>
+              <AlertTriangle size={20} />
+              Submit Emergency Request
+            </>
+          )}
         </button>
       </form>
+
+      <style>{`
+        @keyframes fade-in {
+          from {
+            opacity: 0;
+            transform: translateY(-10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .animate-fade-in {
+          animation: fade-in 0.3s ease-out;
+        }
+      `}</style>
     </Modal>
   );
 }

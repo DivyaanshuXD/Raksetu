@@ -10,13 +10,15 @@ i18n
   .use(initReactI18next) // Initializes react-i18next
   .init({
     fallbackLng: 'en', // Default language
-    debug: true, // Enable debug logs to troubleshoot
+    supportedLngs: ['bn', 'en', 'hi', 'kn', 'ta', 'te'], // Supported languages: English and Hindi (reset to original)
+    debug: process.env.NODE_ENV === 'development', // Only debug in development
     backend: {
-      loadPath: '/locales/en.json', // Path to translation files
+      loadPath: '/locales/{{lng}}.json', // Path to translation files (loads en.json or hi.json)
     },
     detection: {
-      order: ['navigator', 'htmlTag', 'path', 'subdomain'],
-      caches: ['cookie'],
+      order: ['localStorage', 'navigator', 'htmlTag', 'path', 'subdomain'], // Check localStorage first for saved preference
+      lookupLocalStorage: 'preferredLanguage', // Key in localStorage
+      caches: ['localStorage'], // Cache language preference
     },
     interpolation: {
       escapeValue: false, // React already escapes values

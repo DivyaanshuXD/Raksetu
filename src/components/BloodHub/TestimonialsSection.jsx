@@ -1,19 +1,42 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { logger } from '../../utils/logger';
 import { Heart, Award, Quote, MessageCircle, Star, Users } from 'lucide-react';
 import { db, auth } from '../utils/firebase';
 import { collection, addDoc, onSnapshot, query } from 'firebase/firestore';
-import debounce from 'lodash/debounce';
+
+// Custom debounce implementation with cancel method
+const debounce = (func, wait) => {
+  let timeout;
+  const debounced = (...args) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+  debounced.cancel = () => clearTimeout(timeout);
+  return debounced;
+};
 
 // Reference the public asset directly
 const userIcon = '/assets/user-icon.png';
 
 // Memoized Testimonial Card to prevent unnecessary re-renders
 const TestimonialCard = React.memo(({ testimonial }) => {
-  const [avatarFailed, setAvatarFailed] = useState(false);
+  const [imageError, setImageError] = useState(false);
+  const [showFallback, setShowFallback] = useState(!testimonial.avatar);
+
+  // Get user initials for fallback
+  const getInitials = (name) => {
+    if (!name) return '?';
+    const parts = name.trim().split(' ');
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return name[0].toUpperCase();
+  };
 
   return (
     <div 
-      className="group bg-white/90 backdrop-blur-sm p-8 rounded-3xl shadow-lg hover:shadow-2xl transition-all duration-500 border border-white/20 hover:border-red-200/50 hover:-translate-y-2 relative overflow-hidden"
+      className="group bg-white/95 p-8 rounded-3xl shadow-lg hover:shadow-2xl transition-all duration-500 border border-white/20 hover:border-red-200/50 hover:-translate-y-2 relative overflow-hidden"
+      style={{ willChange: 'transform', transform: 'translateZ(0)' }}
     >
       {/* Card Background Pattern */}
       <div className="absolute top-0 right-0 w-32 h-32 opacity-5">
@@ -29,17 +52,28 @@ const TestimonialCard = React.memo(({ testimonial }) => {
       <div className="flex items-center mb-6 relative z-10">
         <div className="relative mr-4">
           <div className="h-14 w-14 rounded-full overflow-hidden bg-gradient-to-r from-red-100 to-rose-100 flex items-center justify-center ring-4 ring-white shadow-lg">
-            <img 
-              src={avatarFailed ? userIcon : (testimonial.avatar || userIcon)} 
-              alt={testimonial.name} 
-              className="h-full w-full object-cover" 
-              onError={(e) => {
-                console.error('Error loading testimonial avatar:', testimonial.avatar);
-                setAvatarFailed(true);
-                e.target.src = userIcon;
-                e.target.onerror = null;
-              }}
-            />
+            {/* Show image if available and not errored */}
+            {testimonial.avatar && !showFallback && (
+              <img 
+                src={testimonial.avatar} 
+                alt={testimonial.name} 
+                className="h-full w-full object-cover" 
+                style={{ display: imageError ? 'none' : 'block' }}
+                onError={(e) => {
+                  if (!e.target.dataset.errorHandled) {
+                    e.target.dataset.errorHandled = 'true';
+                    setImageError(true);
+                    setShowFallback(true);
+                  }
+                }}
+              />
+            )}
+            {/* Fallback: Show initials */}
+            {showFallback && (
+              <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-red-500 to-rose-600 text-white font-bold text-lg">
+                {getInitials(testimonial.name)}
+              </div>
+            )}
           </div>
           <div className="absolute -bottom-1 -right-1 h-6 w-6 bg-green-500 rounded-full border-2 border-white flex items-center justify-center">
             <Heart size={10} className="text-white" fill="currentColor" />
@@ -110,7 +144,7 @@ export default function TestimonialsSection({ userProfile, isLoggedIn, setShowAu
   const debouncedSetTestimonials = useCallback(
     debounce((newTestimonials) => {
       setTestimonials(newTestimonials);
-      console.log('Fetched testimonials:', newTestimonials);
+      logger.info('Fetched testimonials:', newTestimonials);
     }, 500),
     []
   );
@@ -125,7 +159,7 @@ export default function TestimonialsSection({ userProfile, isLoggedIn, setShowAu
       }));
       debouncedSetTestimonials(testimonialsList);
     }, (err) => {
-      console.error('Detailed error fetching testimonials:', err.message, err.code);
+      logger.error('Detailed error fetching testimonials:', err.message, err.code);
       setError(`Failed to load testimonials: ${err.message} (${err.code}). Please try again.`);
     });
     return () => {
@@ -162,14 +196,14 @@ export default function TestimonialsSection({ userProfile, isLoggedIn, setShowAu
         userId: auth.currentUser?.uid || 'anonymous',
       };
 
-      console.log('Submitting testimonial:', testimonialData);
+      logger.info('Submitting testimonial:', testimonialData);
       const docRef = await addDoc(collection(db, 'testimonials'), testimonialData);
-      console.log('Testimonial added with ID:', docRef.id);
+      logger.info('Testimonial added with ID:', docRef.id);
       setFormData({ message: '', highlight: '', rating: 0 });
       setShowForm(false);
       setLoading(false);
     } catch (err) {
-      console.error('Detailed error submitting testimonial:', err.message, err.code);
+      logger.error('Detailed error submitting testimonial:', err.message, err.code);
       setError(`Failed to submit your story: ${err.message} (${err.code}). Please try again.`);
       setLoading(false);
     }
@@ -190,7 +224,7 @@ export default function TestimonialsSection({ userProfile, isLoggedIn, setShowAu
       <div className="absolute inset-0 opacity-30">
         <div className="absolute top-10 left-10 w-72 h-72 bg-gradient-to-r from-red-200 to-pink-200 rounded-full blur-3xl animate-pulse"></div>
         <div className="absolute bottom-10 right-10 w-96 h-96 bg-gradient-to-r from-rose-200 to-red-200 rounded-full blur-3xl animate-pulse delay-1000"></div>
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-gradient-to-r from-pink-100 to-red-100 rounded-full blur-2xl opacity-50"></div>
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-gradient-to-r from-pink-100 to-red-100 rounded-full opacity-30"></div>
       </div>
       
       <div className="container mx-auto px-6 relative z-10">
@@ -201,37 +235,37 @@ export default function TestimonialsSection({ userProfile, isLoggedIn, setShowAu
               <div className="h-16 w-16 bg-gradient-to-r from-red-500 to-rose-500 rounded-full flex items-center justify-center shadow-lg">
                 <Heart className="text-white" size={32} fill="currentColor" />
               </div>
-              <div className="absolute -top-1 -right-1 h-6 w-6 bg-gradient-to-r from-yellow-400 to-orange-400 rounded-full flex items-center justify-center">
-                <Star size={12} className="text-white" fill="currentColor" />
+              <div className="absolute -top-1 -right-1 h-5 w-5 sm:h-6 sm:w-6 bg-gradient-to-r from-yellow-400 to-orange-400 rounded-full flex items-center justify-center">
+                <Star size={10} className="sm:w-3 sm:h-3 text-white" fill="currentColor" />
               </div>
             </div>
           </div>
-          <h2 className="text-5xl font-bold bg-gradient-to-r from-red-600 to-rose-600 bg-clip-text text-transparent mb-6">
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold bg-gradient-to-r from-red-600 to-rose-600 bg-clip-text text-transparent mb-6">
             Stories That Inspire
           </h2>
-          <div className="w-32 h-1.5 bg-gradient-to-r from-red-400 to-rose-400 mx-auto mb-8 rounded-full shadow-sm"></div>
-          <p className="text-slate-600 max-w-4xl mx-auto text-xl leading-relaxed">
+          <div className="w-24 sm:w-32 h-1.5 bg-gradient-to-r from-red-400 to-rose-400 mx-auto mb-6 sm:mb-8 rounded-full shadow-sm"></div>
+          <p className="text-slate-600 max-w-4xl mx-auto text-base sm:text-lg md:text-xl leading-relaxed px-4">
             Every drop counts, every story matters. Discover how Raksetu has touched lives through 
             the generosity of donors and the gratitude of recipients.
           </p>
           
           {/* Stats Section */}
-          <div className="flex justify-center mt-12">
-            <div className="bg-white/80 backdrop-blur-sm rounded-2xl px-8 py-4 shadow-lg border border-white/20">
-              <div className="flex items-center gap-8">
+          <div className="flex justify-center mt-8 sm:mt-12 px-4">
+            <div className="bg-white/90 rounded-2xl px-6 sm:px-8 py-4 shadow-lg border border-white/20">
+              <div className="flex items-center gap-4 sm:gap-8">
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-red-600">{testimonials.length}</div>
-                  <div className="text-sm text-slate-600">Stories Shared</div>
+                  <div className="text-xl sm:text-2xl font-bold text-red-600">{testimonials.length}</div>
+                  <div className="text-xs sm:text-sm text-slate-600">Stories Shared</div>
                 </div>
-                <div className="w-px h-8 bg-slate-300"></div>
+                <div className="w-px h-6 sm:h-8 bg-slate-300"></div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-red-600">4.9</div>
-                  <div className="text-sm text-slate-600">Average Rating</div>
+                  <div className="text-xl sm:text-2xl font-bold text-red-600">4.9</div>
+                  <div className="text-xs sm:text-sm text-slate-600">Average Rating</div>
                 </div>
-                <div className="w-px h-8 bg-slate-300"></div>
+                <div className="w-px h-6 sm:h-8 bg-slate-300"></div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-red-600">98%</div>
-                  <div className="text-sm text-slate-600">Satisfaction</div>
+                  <div className="text-xl sm:text-2xl font-bold text-red-600">98%</div>
+                  <div className="text-xs sm:text-sm text-slate-600">Satisfaction</div>
                 </div>
               </div>
             </div>
@@ -255,7 +289,7 @@ export default function TestimonialsSection({ userProfile, isLoggedIn, setShowAu
 
         {/* CTA Section */}
         <div className="text-center">
-          <div className="bg-white/80 backdrop-blur-sm rounded-3xl p-8 shadow-lg border border-white/20 max-w-2xl mx-auto">
+          <div className="bg-white/90 rounded-3xl p-8 shadow-lg border border-white/20 max-w-2xl mx-auto">
             <h3 className="text-2xl font-bold text-slate-800 mb-4">Share Your Story</h3>
             <p className="text-slate-600 mb-8">
               Your experience could inspire others to become life-saving donors. Share your journey with the Raksetu community.
@@ -283,7 +317,7 @@ export default function TestimonialsSection({ userProfile, isLoggedIn, setShowAu
 
         {/* Modal */}
         {showForm && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
             <div className="bg-white rounded-3xl p-8 max-w-lg w-full shadow-2xl relative overflow-hidden">
               {/* Modal Background */}
               <div className="absolute top-0 right-0 w-32 h-32 opacity-5">

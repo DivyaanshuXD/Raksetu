@@ -25,6 +25,41 @@ export const addEmergencyNotification = async (emergencyRequest) => {
   }
 };
 
+// ML Re-engagement notification (created by backend)
+export const listenForUserNotifications = (userId, callback) => {
+  if (!userId) {
+    callback([]);
+    return () => {};
+  }
+
+  // Listen to user-specific notifications (including ML re-engagement)
+  const userNotificationsQuery = query(
+    collection(db, 'notifications'),
+    orderBy('createdAt', 'desc')
+  );
+
+  return onSnapshot(userNotificationsQuery, (snapshot) => {
+    const notifications = [];
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      // Include notifications for this user or global notifications
+      if (!data.userId || data.userId === userId) {
+        notifications.push({ id: doc.id, ...data });
+      }
+    });
+    console.log('User notifications received:', notifications.length);
+    callback(notifications);
+  }, (error) => {
+    if (error.code === 'permission-denied') {
+      console.log('ℹ️ [Notifications] Not logged in - notifications disabled');
+      callback([]);
+    } else {
+      console.error('Error listening for notifications:', error);
+      callback([]);
+    }
+  });
+};
+
 export const listenForNotifications = (callback) => {
   const notificationsQuery = query(
     collection(db, 'notifications'),
@@ -39,6 +74,13 @@ export const listenForNotifications = (callback) => {
     console.log('Notifications snapshot received:', notifications);
     callback(notifications);
   }, (error) => {
-    console.error('Error listening for notifications:', error);
+    // Silently handle permission errors for unauthenticated users
+    if (error.code === 'permission-denied') {
+      console.log('ℹ️ [Notifications] Not logged in - notifications disabled');
+      callback([]);
+    } else {
+      console.error('Error listening for notifications:', error);
+      callback([]);
+    }
   });
 };

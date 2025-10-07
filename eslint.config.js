@@ -23,11 +23,34 @@ export default [
     rules: {
       ...js.configs.recommended.rules,
       ...reactHooks.configs.recommended.rules,
-      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      
+      // Variable handling
+      'no-unused-vars': ['warn', { 
+        varsIgnorePattern: '^[A-Z_]',
+        argsIgnorePattern: '^_'
+      }],
+      
+      // React specific
       'react-refresh/only-export-components': [
         'warn',
         { allowConstantExport: true },
       ],
+      
+      // Console statement prevention
+      'no-console': ['warn', { 
+        allow: ['warn', 'error'] // Only allow console.warn and console.error temporarily
+      }],
+      
+      // Code quality
+      'no-debugger': 'warn',
+      'no-alert': 'warn',
+      'no-var': 'error', // Enforce let/const
+      'prefer-const': 'warn',
+      'eqeqeq': ['warn', 'always'], // Enforce === instead of ==
+      
+      // Security
+      'no-eval': 'error',
+      'no-implied-eval': 'error',
     },
   },
 ]

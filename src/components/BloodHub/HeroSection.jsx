@@ -1,10 +1,16 @@
+import { memo, useMemo } from 'react';
 import { Droplet, AlertTriangle, ChevronRight, Heart, Shield, Clock, Users } from 'lucide-react';
 import EmergencyCard from './EmergencyCard';
 import Particles from './Particles';
 
-export default function HeroSection({ setActiveSection, setShowEmergencyModal, emergencyRequests }) {
+const HeroSection = memo(({ setActiveSection, setShowEmergencyModal, emergencyRequests }) => {
+  // Memoize top 3 emergencies to prevent recalculation on every render
+  const topEmergencies = useMemo(
+    () => emergencyRequests.slice(0, 3),
+    [emergencyRequests]
+  );
   return (
-    <section className="relative pt-8 md:pt-12 pb-12 md:pb-16 overflow-hidden h-[90vh] sm:h-[85vh] md:h-[80vh] lg:h-[75vh] flex items-center">
+    <section className="relative pt-8 md:pt-12 pb-12 md:pb-16 overflow-hidden min-h-[90vh] sm:min-h-[85vh] md:min-h-[80vh] lg:min-h-[75vh] flex items-center">
       {/* Particles Background with Black Background */}
       <div className="absolute inset-0 z-0 bg-black">
         <Particles
@@ -21,7 +27,7 @@ export default function HeroSection({ setActiveSection, setShowEmergencyModal, e
       </div>
 
       {/* Main Content */}
-      <div className="container mx-auto px-4 sm:px-6 relative z-10 max-w-7xl">
+      <div className="container mx-auto px-3 sm:px-4 md:px-6 relative z-10 max-w-7xl">
         <div className="grid md:grid-cols-2 gap-6 sm:gap-8 md:gap-10 items-center">
           {/* Left Column - Hero Text */}
           <div className="space-y-5 md:space-y-6 text-white">
@@ -100,14 +106,14 @@ export default function HeroSection({ setActiveSection, setShowEmergencyModal, e
           </div>
           
           {/* Right Column - Emergency Alerts */}
-          <div className="mt-6 sm:mt-8 md:mt-0">
+          <div className="mt-8 sm:mt-10 md:mt-0">
             <div className="relative">
               {/* Decorative Elements */}
               <div className="absolute -top-6 -left-6 md:-top-10 md:-left-10 w-16 md:w-20 h-16 md:h-20 bg-red-500/30 rounded-full blur-xl"></div>
               <div className="absolute -bottom-6 -right-6 md:-bottom-10 md:-right-10 w-20 md:w-32 h-20 md:h-32 bg-red-600/20 rounded-full blur-xl"></div>
               
               {/* Alert Card */}
-              <div className="bg-white rounded-2xl shadow-2xl overflow-hidden relative z-10">
+              <div className="bg-white rounded-xl md:rounded-2xl shadow-2xl overflow-hidden relative z-10">
                 {/* Alert Header */}
                 <div className="bg-gradient-to-r from-red-600 to-red-700 px-4 md:px-6 py-3 md:py-4">
                   <div className="flex items-center justify-between">
@@ -126,28 +132,29 @@ export default function HeroSection({ setActiveSection, setShowEmergencyModal, e
                 </div>
                 
                 {/* Alert Content */}
-                <div className="p-4 md:p-6">
-                  <div className="space-y-3 md:space-y-4 mb-4 md:mb-6">
-                    {emergencyRequests.slice(0, 3).map((emergency, index) => (
-                      <div key={emergency.id}>
+                <div className="p-4 sm:p-5 md:p-8">
+                  <div className="space-y-4 sm:space-y-5 md:space-y-6 mb-5 sm:mb-6 md:mb-8">
+                    {topEmergencies.map((emergency, index) => (
+                      <div key={emergency.id} className="w-full">
                         <EmergencyCard
                           emergency={emergency}
                           onClick={() => setActiveSection('emergency')}
                           compact={true}
+                          className="w-full"
                         />
                         {index < 2 && 
-                          <div className="border-b border-gray-100 my-3 md:my-4"></div>
+                          <div className="border-b border-gray-200 my-3 sm:my-4 md:my-5"></div>
                         }
                       </div>
                     ))}
                   </div>
                   
                   <button
-                    className="w-full bg-gray-50 hover:bg-gray-100 text-red-600 font-medium rounded-xl py-2 md:py-3 flex items-center justify-center hover:text-red-700 transition-colors text-sm md:text-base"
+                    className="w-full bg-gradient-to-r from-red-50 to-pink-50 hover:from-red-100 hover:to-pink-100 text-red-600 font-semibold rounded-xl py-3 md:py-4 flex items-center justify-center hover:text-red-700 transition-all duration-200 shadow-sm hover:shadow-md text-sm md:text-base border border-red-100"
                     onClick={() => setActiveSection('emergency')}
                   >
-                    View all emergencies 
-                    <ChevronRight size={16} className="ml-1" />
+                    View All Emergencies
+                    <ChevronRight size={18} className="ml-2" />
                   </button>
                 </div>
                 
@@ -180,4 +187,8 @@ export default function HeroSection({ setActiveSection, setShowEmergencyModal, e
       </div>
     </section>
   );
-}
+});
+
+HeroSection.displayName = 'HeroSection';
+
+export default HeroSection;

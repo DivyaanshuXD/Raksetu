@@ -1,8 +1,11 @@
-import { useEffect, useState, Component } from 'react';
-import { UserCircle, Heart, Users, Check, Award, Download, Calendar, MapPin, Trash2, Plus, TrendingUp } from 'lucide-react';
+import { useEffect, useState, useMemo, Component } from 'react';
+import { logger } from '../../utils/logger';
+import { UserCircle, Heart, Users, Check, Award, Download, Calendar, MapPin, Trash2, Plus, TrendingUp, FileText, BarChart3, LineChart as LineChartIcon, PieChart as PieChartIcon } from 'lucide-react';
 import { db } from '../utils/firebase';
 import { collection, onSnapshot, addDoc, query, where, deleteDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
+import { generatePDFCertificate, generateAnnualReport } from '../../services/pdfExportService';
+import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 // Error Boundary Component
 class ErrorBoundary extends Component {
@@ -26,9 +29,10 @@ class ErrorBoundary extends Component {
   }
 }
 
-export default function TrackDonationsSection({ onDonationConfirmed, isLoggedIn, setShowAuthModal, setAuthMode, donations, setDonations, userProfile }) {
+export default function TrackDonationsSection({ onDonationConfirmed, isLoggedIn, setShowAuthModal, setAuthMode, donations, userProfile }) {
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showClearModal, setShowClearModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [appointmentDate, setAppointmentDate] = useState('');
   const [appointmentTime, setAppointmentTime] = useState('');
   const [selectedBloodBank, setSelectedBloodBank] = useState('');
@@ -37,6 +41,8 @@ export default function TrackDonationsSection({ onDonationConfirmed, isLoggedIn,
   const [modalMessage, setModalMessage] = useState('');
   const [completedDonations, setCompletedDonations] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeChartTab, setActiveChartTab] = useState('timeline');
+  const [bloodBanks, setBloodBanks] = useState([]);
 
   const auth = getAuth();
   const user = auth.currentUser;
@@ -76,7 +82,7 @@ export default function TrackDonationsSection({ onDonationConfirmed, isLoggedIn,
         setLoading(false);
       },
       (error) => {
-        console.error('Error fetching completed donations:', error.message, error.code);
+        logger.error('Error fetching completed donations:', error.message, error.code);
         setCompletedDonations([]);
         setLoading(false);
       }
@@ -84,66 +90,108 @@ export default function TrackDonationsSection({ onDonationConfirmed, isLoggedIn,
     return () => unsubscribe();
   }, [user]);
 
-  // Fetch upcoming donations in real-time and check for completion
+  // Fetch blood banks from Firebase
   useEffect(() => {
-    if (!user) {
-      setDonations([]);
-      return;
-    }
-    const donationsRef = query(
-      collection(db, 'donationsDone'),
-      where('userId', '==', user.uid),
-      where('status', '==', 'upcoming')
-    );
+    const bloodBanksRef = collection(db, 'bloodBanks');
     const unsubscribe = onSnapshot(
-      donationsRef,
+      bloodBanksRef,
       (snapshot) => {
-        const upcoming = snapshot.docs.map((doc) => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            ...data,
-            date: data.date ? (data.date.toDate ? data.date.toDate() : new Date(data.date)) : new Date(),
-          };
-        });
-
-        const now = new Date();
-        upcoming.forEach(async (donation) => {
-          try {
-            const donationDateTime = new Date(`${donation.date.toISOString().split('T')[0]} ${donation.time}`);
-            if (donationDateTime < now) {
-              await updateDoc(doc(db, 'donationsDone', donation.id), {
-                status: 'completed',
-                points: donation.points || 150,
-              });
-            }
-          } catch (error) {
-            console.error('Error updating donation status:', error.message, error.code);
-          }
-        });
-
-        setDonations(
-          upcoming.filter((donation) => {
-            const donationDateTime = new Date(`${donation.date.toISOString().split('T')[0]} ${donation.time}`);
-            return donationDateTime >= now;
-          })
-        );
+        const banks = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        setBloodBanks(banks);
       },
       (error) => {
-        console.error('Error fetching upcoming donations:', error.message, error.code);
-        setDonations([]);
+        logger.error('Error fetching blood banks:', error);
+        setBloodBanks([]);
       }
     );
     return () => unsubscribe();
-  }, [user, setDonations]);
+  }, []);
 
-  const totalDonations = completedDonations.length;
-  const totalImpactPoints = completedDonations.reduce((sum, donation) => sum + (donation.points || 0), 0);
+  // NOTE: Donations are now managed by useDonations hook in BloodHub parent component
+  // This prevents duplicate subscriptions and "setDonations is not a function" errors
+  // The donations prop contains the latest data from Firestore via the parent's subscription
+
+  // Memoize expensive calculations to prevent recalculation on every render
+  // Only count COMPLETED donations (not pending) for achievements
+  const totalDonations = useMemo(() => 
+    completedDonations.filter(d => d.status === 'completed').length, 
+    [completedDonations]
+  );
+  const totalImpactPoints = useMemo(
+    () => completedDonations.reduce((sum, donation) => sum + (donation.points || 0), 0),
+    [completedDonations]
+  );
   const bloodType = userProfile?.bloodType || 'Not specified';
   const username = userProfile?.name || 'Anonymous';
 
-  const registeredDrives = donations.filter((d) => d.type === 'drive');
-  const appointments = donations.filter((d) => d.type === 'appointment');
+  // Prepare chart data - donation timeline
+  const donationTimelineData = useMemo(() => {
+    if (completedDonations.length === 0) return [];
+    
+    // Group donations by month
+    const monthlyData = {};
+    completedDonations.forEach(donation => {
+      const date = donation.date;
+      const monthYear = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      
+      if (!monthlyData[monthYear]) {
+        monthlyData[monthYear] = {
+          month: monthYear,
+          donations: 0,
+          points: 0,
+          lives: 0
+        };
+      }
+      
+      monthlyData[monthYear].donations += 1;
+      monthlyData[monthYear].points += donation.points || 0;
+      monthlyData[monthYear].lives += 3; // Each donation saves ~3 lives
+    });
+    
+    // Convert to array and sort by date
+    return Object.values(monthlyData).sort((a, b) => {
+      return new Date(a.month) - new Date(b.month);
+    });
+  }, [completedDonations]);
+
+  // Prepare cumulative impact data
+  const cumulativeImpactData = useMemo(() => {
+    if (donationTimelineData.length === 0) return [];
+    
+    let cumulativeDonations = 0;
+    let cumulativePoints = 0;
+    let cumulativeLives = 0;
+    
+    return donationTimelineData.map(month => {
+      cumulativeDonations += month.donations;
+      cumulativePoints += month.points;
+      cumulativeLives += month.lives;
+      
+      return {
+        month: month.month,
+        totalDonations: cumulativeDonations,
+        totalPoints: cumulativePoints,
+        totalLives: cumulativeLives
+      };
+    });
+  }, [donationTimelineData]);
+
+  // Prepare monthly comparison data (last 6 months)
+  const monthlyComparisonData = useMemo(() => {
+    return donationTimelineData.slice(-6);
+  }, [donationTimelineData]);
+
+  const registeredDrives = useMemo(
+    () => donations.filter((d) => d.type === 'drive'),
+    [donations]
+  );
+  const appointments = useMemo(
+    () => donations.filter((d) => d.type === 'appointment'),
+    [donations]
+  );
 
   const formatDate = (dateValue) => {
     if (!dateValue) return 'Unknown Date';
@@ -156,26 +204,27 @@ export default function TrackDonationsSection({ onDonationConfirmed, isLoggedIn,
   };
 
   const getBadgeInfo = () => {
+    // Match ProfileSection badge logic exactly
     if (totalDonations >= 10)
       return {
-        label: 'Platinum Lifesaver',
-        color: 'bg-purple-100 text-purple-700 border-purple-200',
-        gradient: 'linear-gradient(135deg, #e6e6fa, #dda0dd)',
-      };
-    if (totalDonations >= 5)
-      return {
-        label: 'Gold Lifesaver',
+        label: 'Gold Donor',
         color: 'bg-yellow-100 text-yellow-700 border-yellow-200',
         gradient: 'linear-gradient(135deg, #ffd700, #ffed4e)',
       };
-    if (totalDonations >= 2)
+    if (totalDonations >= 5)
       return {
-        label: 'Emergency Hero',
-        color: 'bg-blue-100 text-blue-700 border-blue-200',
-        gradient: 'linear-gradient(135deg, #87ceeb, #4682b4)',
+        label: 'Silver Donor',
+        color: 'bg-gray-100 text-gray-700 border-gray-300',
+        gradient: 'linear-gradient(135deg, #c0c0c0, #e8e8e8)',
+      };
+    if (totalDonations >= 1)
+      return {
+        label: 'Bronze Donor',
+        color: 'bg-orange-100 text-orange-700 border-orange-200',
+        gradient: 'linear-gradient(135deg, #cd7f32, #e5a668)',
       };
     return {
-      label: 'First Donor',
+      label: 'New Hero',
       color: 'bg-green-100 text-green-700 border-green-200',
       gradient: 'linear-gradient(135deg, #90ee90, #32cd32)',
     };
@@ -184,10 +233,10 @@ export default function TrackDonationsSection({ onDonationConfirmed, isLoggedIn,
   const badgeInfo = getBadgeInfo();
 
   const achievements = [
-    { icon: Heart, title: 'First Donation', threshold: 1, achieved: totalDonations >= 1 },
-    { icon: Users, title: 'Emergency Hero', threshold: 2, achieved: totalDonations >= 2 },
-    { icon: Check, title: 'Regular Donor', threshold: 5, achieved: totalDonations >= 5 },
-    { icon: Award, title: 'Platinum Saver', threshold: 10, achieved: totalDonations >= 10 },
+    { icon: Heart, title: 'Bronze Donor', threshold: 1, achieved: totalDonations >= 1 },
+    { icon: Users, title: 'Silver Donor', threshold: 5, achieved: totalDonations >= 5 },
+    { icon: Award, title: 'Gold Donor', threshold: 10, achieved: totalDonations >= 10 },
+    { icon: Check, title: 'Platinum Hero', threshold: 20, achieved: totalDonations >= 20 },
   ];
 
   const handleScheduleVisit = () => {
@@ -237,7 +286,7 @@ export default function TrackDonationsSection({ onDonationConfirmed, isLoggedIn,
       setAppointmentTime('');
       setSelectedBloodBank('');
     } catch (error) {
-      console.error('Error scheduling appointment:', error.message, error.code);
+      logger.error('Error scheduling appointment:', error.message, error.code);
       setModalHeading('Error');
       setModalMessage(`Failed to schedule appointment: ${error.message}. Please try again.`);
       setShowSuccessModal(true);
@@ -283,7 +332,7 @@ export default function TrackDonationsSection({ onDonationConfirmed, isLoggedIn,
       setShowSuccessModal(true);
       setShowClearModal(false);
     } catch (error) {
-      console.error('Error clearing donations:', error.message, error.code);
+      logger.error('Error clearing donations:', error.message, error.code);
       setModalHeading('Error');
       setModalMessage(`Failed to clear scheduled donations: ${error.message}. Please try again.`);
       setShowSuccessModal(true);
@@ -291,6 +340,17 @@ export default function TrackDonationsSection({ onDonationConfirmed, isLoggedIn,
   };
 
   const handleDownloadCertificate = () => {
+    if (!userProfile) {
+      setModalHeading('Error');
+      setModalMessage('User profile not found. Please ensure you are logged in.');
+      setShowSuccessModal(true);
+      return;
+    }
+    // Show export modal to choose format
+    setShowExportModal(true);
+  };
+
+  const handleExportHTML = () => {
     if (!userProfile) {
       setModalHeading('Error');
       setModalMessage('User profile not found. Please ensure you are logged in.');
@@ -653,14 +713,83 @@ export default function TrackDonationsSection({ onDonationConfirmed, isLoggedIn,
 
       setModalHeading('Certificate Generated!');
       setModalMessage(
-        'Your certificate has been opened in a new window. You can view it and save it as a PDF using your browser’s print or save options.'
+        "Your certificate has been opened in a new window. You can view it and save it as a PDF using your browser's print or save options."
       );
       setShowSuccessModal(true);
+      setShowExportModal(false);
     } catch (error) {
-      console.error('Error generating certificate:', error.message);
+      logger.error('Error generating certificate:', error.message);
       setModalHeading('Error');
       setModalMessage('Failed to generate certificate. Please try again.');
       setShowSuccessModal(true);
+    }
+  };
+
+  const handleExportPDF = () => {
+    if (!userProfile) {
+      setModalHeading('Error');
+      setModalMessage('User profile not found. Please ensure you are logged in.');
+      setShowSuccessModal(true);
+      return;
+    }
+
+    const userData = {
+      name: username,
+      bloodType: bloodType,
+      totalDonations: totalDonations,
+      totalImpactPoints: totalImpactPoints,
+      badgeLabel: badgeInfo.label
+    };
+
+    const success = generatePDFCertificate(userData);
+    
+    if (success) {
+      setModalHeading('PDF Certificate Generated!');
+      setModalMessage('Your PDF certificate has been downloaded successfully.');
+      setShowSuccessModal(true);
+      setShowExportModal(false);
+    }
+  };
+
+  const handleExportAnnualReport = () => {
+    if (!userProfile || completedDonations.length === 0) {
+      setModalHeading('No Data');
+      setModalMessage('You need at least one completed donation to generate an annual report.');
+      setShowSuccessModal(true);
+      return;
+    }
+
+    const currentYear = new Date().getFullYear();
+    const yearDonations = completedDonations.filter(donation => {
+      const donationYear = donation.date instanceof Date 
+        ? donation.date.getFullYear()
+        : new Date(donation.date).getFullYear();
+      return donationYear === currentYear;
+    });
+
+    const reportData = {
+      userName: username,
+      bloodType: bloodType,
+      year: currentYear,
+      totalDonations: yearDonations.length,
+      totalImpactPoints: yearDonations.reduce((sum, d) => sum + (d.points || 0), 0),
+      donations: yearDonations.map(d => ({
+        date: d.date instanceof Date 
+          ? d.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+          : new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        location: d.location || d.bankName || 'N/A',
+        bloodType: d.bloodType || bloodType,
+        status: d.status || 'Completed'
+      }))
+    };
+
+    const success = generateAnnualReport(reportData);
+    
+    if (success) {
+      setModalHeading('Annual Report Generated!');
+      setModalMessage(`Your ${currentYear} annual donation report has been downloaded successfully.`);
+      setShowSuccessModal(true);
+      setShowExportModal(false);
     }
   };
 
@@ -764,6 +893,204 @@ export default function TrackDonationsSection({ onDonationConfirmed, isLoggedIn,
             </div>
           </div>
 
+          {/* Analytics Charts Section */}
+          {completedDonations.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Analytics & Insights</h3>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setActiveChartTab('timeline')}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                      activeChartTab === 'timeline'
+                        ? 'bg-red-100 text-red-700'
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    <LineChartIcon className="w-4 h-4" />
+                    Timeline
+                  </button>
+                  <button
+                    onClick={() => setActiveChartTab('monthly')}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                      activeChartTab === 'monthly'
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    <BarChart3 className="w-4 h-4" />
+                    Monthly
+                  </button>
+                  <button
+                    onClick={() => setActiveChartTab('impact')}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                      activeChartTab === 'impact'
+                        ? 'bg-green-100 text-green-700'
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    <TrendingUp className="w-4 h-4" />
+                    Impact
+                  </button>
+                </div>
+              </div>
+
+              {/* Timeline Chart */}
+              {activeChartTab === 'timeline' && (
+                <div>
+                  <p className="text-sm text-gray-600 mb-4">Your donation journey over time</p>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={donationTimelineData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis 
+                        dataKey="month" 
+                        tick={{ fontSize: 12 }}
+                        stroke="#9ca3af"
+                      />
+                      <YAxis 
+                        tick={{ fontSize: 12 }}
+                        stroke="#9ca3af"
+                      />
+                      <Tooltip 
+                        contentStyle={{
+                          backgroundColor: '#fff',
+                          border: '1px solid #e5e7eb',
+                          borderRadius: '8px',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                        }}
+                      />
+                      <Legend 
+                        wrapperStyle={{ fontSize: '12px' }}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="donations" 
+                        stroke="#ef4444" 
+                        strokeWidth={2}
+                        dot={{ fill: '#ef4444', r: 4 }}
+                        activeDot={{ r: 6 }}
+                        name="Donations"
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="lives" 
+                        stroke="#3b82f6" 
+                        strokeWidth={2}
+                        dot={{ fill: '#3b82f6', r: 4 }}
+                        activeDot={{ r: 6 }}
+                        name="Lives Saved"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              {/* Monthly Comparison Chart */}
+              {activeChartTab === 'monthly' && (
+                <div>
+                  <p className="text-sm text-gray-600 mb-4">Monthly donation statistics (last 6 months)</p>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={monthlyComparisonData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis 
+                        dataKey="month" 
+                        tick={{ fontSize: 12 }}
+                        stroke="#9ca3af"
+                      />
+                      <YAxis 
+                        tick={{ fontSize: 12 }}
+                        stroke="#9ca3af"
+                      />
+                      <Tooltip 
+                        contentStyle={{
+                          backgroundColor: '#fff',
+                          border: '1px solid #e5e7eb',
+                          borderRadius: '8px',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                        }}
+                      />
+                      <Legend 
+                        wrapperStyle={{ fontSize: '12px' }}
+                      />
+                      <Bar 
+                        dataKey="donations" 
+                        fill="#ef4444" 
+                        radius={[8, 8, 0, 0]}
+                        name="Donations"
+                      />
+                      <Bar 
+                        dataKey="points" 
+                        fill="#10b981" 
+                        radius={[8, 8, 0, 0]}
+                        name="Impact Points"
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              {/* Cumulative Impact Chart */}
+              {activeChartTab === 'impact' && (
+                <div>
+                  <p className="text-sm text-gray-600 mb-4">Cumulative impact and growth over time</p>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <AreaChart data={cumulativeImpactData}>
+                      <defs>
+                        <linearGradient id="colorDonations" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                        </linearGradient>
+                        <linearGradient id="colorLives" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis 
+                        dataKey="month" 
+                        tick={{ fontSize: 12 }}
+                        stroke="#9ca3af"
+                      />
+                      <YAxis 
+                        tick={{ fontSize: 12 }}
+                        stroke="#9ca3af"
+                      />
+                      <Tooltip 
+                        contentStyle={{
+                          backgroundColor: '#fff',
+                          border: '1px solid #e5e7eb',
+                          borderRadius: '8px',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                        }}
+                      />
+                      <Legend 
+                        wrapperStyle={{ fontSize: '12px' }}
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="totalDonations" 
+                        stroke="#ef4444" 
+                        strokeWidth={2}
+                        fillOpacity={1} 
+                        fill="url(#colorDonations)"
+                        name="Total Donations"
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="totalLives" 
+                        stroke="#3b82f6" 
+                        strokeWidth={2}
+                        fillOpacity={1} 
+                        fill="url(#colorLives)"
+                        name="Total Lives Saved"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="grid md:grid-cols-2 gap-6 mb-6">
             <div className="bg-white rounded-xl border border-gray-200">
               <div className="p-4 border-b border-gray-100">
@@ -790,8 +1117,8 @@ export default function TrackDonationsSection({ onDonationConfirmed, isLoggedIn,
               <div className="p-4 max-h-64 overflow-y-auto">
                 {[...registeredDrives, ...appointments].length > 0 ? (
                   <div className="space-y-3">
-                    {[...registeredDrives, ...appointments].map((item) => (
-                      <div key={item.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                    {[...registeredDrives, ...appointments].map((item, idx) => (
+                      <div key={`${item.id}-${idx}`} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
                         <Calendar className="w-4 h-4 text-gray-500 mt-0.5" />
                         <div className="flex-1 min-w-0">
                           <div className="font-medium text-sm text-gray-900 truncate">
@@ -876,15 +1203,19 @@ export default function TrackDonationsSection({ onDonationConfirmed, isLoggedIn,
                 return (
                   <div key={index} className="text-center">
                     <div
-                      className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-2 ${
-                        achievement.achieved ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-400'
+                      className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-2 transition-all ${
+                        achievement.achieved 
+                          ? 'bg-gradient-to-br from-red-100 to-red-200 text-red-600 shadow-md' 
+                          : 'bg-gray-200 text-gray-400 opacity-50'
                       }`}
                     >
                       <Icon className="w-6 h-6" />
                     </div>
-                    <div className="text-sm font-medium text-gray-900">{achievement.title}</div>
+                    <div className={`text-sm font-medium ${
+                      achievement.achieved ? 'text-gray-900' : 'text-gray-400'
+                    }`}>{achievement.title}</div>
                     <div className="text-xs text-gray-500">
-                      {achievement.achieved ? 'Unlocked' : `${achievement.threshold} donations`}
+                      {achievement.achieved ? '✓ Unlocked' : `Needs ${achievement.threshold} donations`}
                     </div>
                   </div>
                 );
@@ -892,21 +1223,105 @@ export default function TrackDonationsSection({ onDonationConfirmed, isLoggedIn,
             </div>
           </div>
 
-          <div className="flex gap-3 mt-6">
+          <div className="flex flex-col sm:flex-row gap-3 mt-6">
             <button
               onClick={handleScheduleVisit}
-              className="flex-1 bg-red-600 hover:bg-red-700 text-white py-3 rounded-lg font-medium transition-colors"
+              className="flex-1 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white py-3.5 rounded-xl font-semibold transition-all shadow-lg hover:shadow-xl transform hover:scale-105 flex items-center justify-center gap-2"
             >
+              <Calendar className="w-5 h-5" />
               Schedule Donation
             </button>
             <button
               onClick={handleDownloadCertificate}
-              className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-medium transition-colors flex items-center gap-2"
+              className="flex-1 sm:flex-none bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-8 py-3.5 rounded-xl font-semibold transition-all shadow-lg hover:shadow-xl transform hover:scale-105 flex items-center justify-center gap-2"
             >
-              <Download className="w-4 h-4" />
-              Certificate
+              <Download className="w-5 h-5" />
+              Export Certificate
             </button>
           </div>
+
+          {showExportModal && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-xl p-6 max-w-md w-full">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-semibold text-gray-900">Choose Export Format</h3>
+                  <button
+                    onClick={() => setShowExportModal(false)}
+                    className="text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    ✕
+                  </button>
+                </div>
+                
+                <p className="text-sm text-gray-600 mb-6">
+                  Select the format you'd like to export your donation certificate
+                </p>
+
+                <div className="space-y-3">
+                  {/* PDF Certificate */}
+                  <button
+                    onClick={handleExportPDF}
+                    className="w-full flex items-center gap-4 p-4 border-2 border-gray-200 rounded-xl hover:border-red-500 hover:bg-red-50 transition-all group"
+                  >
+                    <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center group-hover:bg-red-200 transition-colors">
+                      <Download className="w-6 h-6 text-red-600" />
+                    </div>
+                    <div className="text-left flex-1">
+                      <div className="font-semibold text-gray-900 group-hover:text-red-600 transition-colors">
+                        PDF Certificate
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        Download as PDF (recommended)
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* HTML Certificate */}
+                  <button
+                    onClick={handleExportHTML}
+                    className="w-full flex items-center gap-4 p-4 border-2 border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all group"
+                  >
+                    <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center group-hover:bg-blue-200 transition-colors">
+                      <FileText className="w-6 h-6 text-blue-600" />
+                    </div>
+                    <div className="text-left flex-1">
+                      <div className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">
+                        HTML Certificate
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        Open in new window (print to PDF)
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* Annual Report */}
+                  <button
+                    onClick={handleExportAnnualReport}
+                    className="w-full flex items-center gap-4 p-4 border-2 border-gray-200 rounded-xl hover:border-purple-500 hover:bg-purple-50 transition-all group"
+                  >
+                    <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center group-hover:bg-purple-200 transition-colors">
+                      <TrendingUp className="w-6 h-6 text-purple-600" />
+                    </div>
+                    <div className="text-left flex-1">
+                      <div className="font-semibold text-gray-900 group-hover:text-purple-600 transition-colors">
+                        Annual Report
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        Complete year-end report with stats
+                      </div>
+                    </div>
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => setShowExportModal(false)}
+                  className="w-full mt-4 px-4 py-2.5 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
 
           {showScheduleModal && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -924,11 +1339,15 @@ export default function TrackDonationsSection({ onDonationConfirmed, isLoggedIn,
                       onChange={(e) => setSelectedBloodBank(e.target.value)}
                     >
                       <option value="">Select a blood bank</option>
-                      <option value="Raksetu Blood Bank">Raksetu Blood Bank</option>
-                      <option value="City Central Blood Bank">City Central Blood Bank</option>
-                      <option value="Northside Community Blood Center">Northside Community Blood Center</option>
-                      <option value="Hope Valley Blood Bank">Hope Valley Blood Bank</option>
-                      <option value="Unity Blood Services">Unity Blood Services</option>
+                      {bloodBanks.length > 0 ? (
+                        bloodBanks.map((bank) => (
+                          <option key={bank.id} value={bank.name}>
+                            {bank.name} - {bank.city}
+                          </option>
+                        ))
+                      ) : (
+                        <option value="" disabled>Loading blood banks...</option>
+                      )}
                     </select>
                   </div>
 
