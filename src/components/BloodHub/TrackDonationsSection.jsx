@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, Component } from 'react';
 import { logger } from '../../utils/logger';
 import { UserCircle, Heart, Users, Check, Award, Download, Calendar, MapPin, Trash2, Plus, TrendingUp, FileText, BarChart3, LineChart as LineChartIcon, PieChart as PieChartIcon } from 'lucide-react';
 import { db } from '../utils/firebase';
-import { collection, onSnapshot, addDoc, query, where, deleteDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, query, where, deleteDoc, doc, updateDoc, serverTimestamp, getDocs } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { generatePDFCertificate, generateAnnualReport } from '../../services/pdfExportService';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -370,6 +370,21 @@ export default function TrackDonationsSection({ onDonationConfirmed, isLoggedIn,
       
       const bloodBanksSnapshot = await getDocs(collection(db, 'blood_banks'));
       const totalBloodBanks = bloodBanksSnapshot.size;
+
+      // Get last donation date
+      const lastDonation = completedDonations.length > 0 
+        ? completedDonations.sort((a, b) => b.date - a.date)[0]
+        : null;
+      const lastDonationDate = lastDonation 
+        ? lastDonation.date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+        : 'N/A';
+
+      // Get formatted current date
+      const formattedDate = new Date().toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
 
       const certificateHTML = `
         <!DOCTYPE html>

@@ -33,9 +33,9 @@ const Leaderboard = ({ currentUserId, userBloodType }) => {
       for (const userDoc of usersSnapshot.docs) {
         const userData = userDoc.data();
         
-        // Fetch user's donations
+        // Fetch user's donations from donationsDone collection
         let donationsQuery = query(
-          collection(db, 'donations'),
+          collection(db, 'donationsDone'),
           where('userId', '==', userDoc.id),
           where('status', '==', 'completed')
         );
@@ -46,7 +46,7 @@ const Leaderboard = ({ currentUserId, userBloodType }) => {
           const cutoffDate = new Date(Date.now() - periodConfig.duration);
           donationsQuery = query(
             donationsQuery,
-            where('timestamp', '>=', cutoffDate.toISOString())
+            where('date', '>=', cutoffDate)
           );
         }
 
@@ -67,7 +67,7 @@ const Leaderboard = ({ currentUserId, userBloodType }) => {
             profilePicture: userData.profilePicture,
             totalPoints,
             donationCount,
-            lastDonation: donations[0]?.timestamp
+            lastDonation: donations[0]?.date
           });
         }
       }

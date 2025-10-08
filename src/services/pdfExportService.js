@@ -18,7 +18,7 @@ import 'jspdf-autotable';
  * @param {string} userData.bloodType - Blood type (e.g., "A+")
  * @param {number} userData.totalDonations - Number of donations
  * @param {number} userData.totalImpactPoints - Impact points earned
- * @param {string} userData.badgeLabel - Badge level (e.g., "Platinum Lifesaver")
+ * @param {string} userData.badgeLabel - Badge level (e.g., "Gold Donor")
  * @returns {boolean} - Success status
  */
 export const generatePDFCertificate = (userData) => {
@@ -33,212 +33,214 @@ export const generatePDFCertificate = (userData) => {
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
 
-    // Colors
-    const primaryRed = [196, 30, 58]; // #c41e3a
-    const lightRed = [255, 240, 240];
-    const darkGray = [44, 62, 80];
-    const mediumGray = [102, 102, 102];
-    const gold = [255, 215, 0];
+    // Modern color scheme
+    const primaryRed = [220, 38, 38]; // #dc2626
+    const secondaryRed = [239, 68, 68]; // #ef4444
+    const lightRed = [254, 242, 242]; // #fef2f2
+    const darkGray = [17, 24, 39]; // #111827
+    const mediumGray = [107, 114, 128]; // #6b7280
+    const lightGray = [156, 163, 175]; // #9ca3af
+    const gold = [251, 191, 36]; // #fbbf24
 
-    // Add decorative border
+    // Background gradient effect
+    pdf.setFillColor(254, 242, 242);
+    pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+
+    // Outer border with gradient effect
     pdf.setDrawColor(...primaryRed);
-    pdf.setLineWidth(2);
-    pdf.rect(10, 10, pageWidth - 20, pageHeight - 20, 'S');
+    pdf.setLineWidth(1.5);
+    pdf.rect(15, 15, pageWidth - 30, pageHeight - 30, 'S');
     
+    // Inner border
+    pdf.setDrawColor(220, 38, 38, 0.3);
     pdf.setLineWidth(0.5);
-    pdf.rect(12, 12, pageWidth - 24, pageHeight - 24, 'S');
-
-    // Add corner decorations (small circles)
-    pdf.setFillColor(...primaryRed);
-    const cornerSize = 3;
-    // Top left
-    pdf.circle(15, 15, cornerSize, 'F');
-    // Top right
-    pdf.circle(pageWidth - 15, 15, cornerSize, 'F');
-    // Bottom left
-    pdf.circle(15, pageHeight - 15, cornerSize, 'F');
-    // Bottom right
-    pdf.circle(pageWidth - 15, pageHeight - 15, cornerSize, 'F');
+    pdf.rect(20, 20, pageWidth - 40, pageHeight - 40, 'S');
 
     // Add badge in top right corner
-    const badgeX = pageWidth - 45;
+    const badgeX = pageWidth - 50;
     const badgeY = 25;
     
-    // Badge background
-    let badgeColor;
-    switch (userData.badgeLabel) {
-      case 'Platinum Lifesaver':
-        badgeColor = [230, 230, 250]; // Lavender
-        break;
-      case 'Gold Lifesaver':
-        badgeColor = [255, 215, 0]; // Gold
-        break;
-      case 'Emergency Hero':
-        badgeColor = [135, 206, 235]; // Sky blue
-        break;
-      default:
-        badgeColor = [144, 238, 144]; // Light green
-    }
+    pdf.setFillColor(...gold);
+    pdf.roundedRect(badgeX - 5, badgeY - 5, 40, 12, 3, 3, 'F');
     
-    pdf.setFillColor(...badgeColor);
-    pdf.roundedRect(badgeX, badgeY - 5, 35, 10, 2, 2, 'F');
-    
-    pdf.setFontSize(8);
-    pdf.setTextColor(...darkGray);
+    pdf.setFontSize(9);
+    pdf.setTextColor(120, 53, 15); // Dark gold
     pdf.setFont('helvetica', 'bold');
-    pdf.text(userData.badgeLabel.toUpperCase(), badgeX + 17.5, badgeY, { align: 'center' });
+    pdf.text(userData.badgeLabel.toUpperCase(), badgeX + 15, badgeY + 2, { align: 'center' });
 
-    // Add logo/icon (heart shape using text)
-    pdf.setFontSize(40);
+    // Add modern logo (heart icon)
+    pdf.setFontSize(35);
     pdf.setTextColor(...primaryRed);
-    pdf.text('♥', pageWidth / 2, 35, { align: 'center' });
+    pdf.text('♥', pageWidth / 2 - 10, 40, { align: 'center' });
+    
+    // Organization name next to logo
+    pdf.setFontSize(18);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor(...darkGray);
+    pdf.text('RAKSETU', pageWidth / 2 + 15, 42, { align: 'center' });
 
-    // Add title
-    pdf.setFontSize(32);
-    pdf.setFont('times', 'bold');
+    // Modern title with large font
+    pdf.setFontSize(42);
+    pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(...primaryRed);
-    pdf.text('Certificate of Appreciation', pageWidth / 2, 50, { align: 'center' });
+    pdf.text('Certificate of Honor', pageWidth / 2, 60, { align: 'center' });
 
-    // Add subtitle
-    pdf.setFontSize(14);
-    pdf.setFont('times', 'italic');
-    pdf.setTextColor(...mediumGray);
-    pdf.text('For Outstanding Service in Blood Donation', pageWidth / 2, 58, { align: 'center' });
-
-    // Add "This is to certify that"
+    // Subtitle
     pdf.setFontSize(12);
     pdf.setFont('helvetica', 'normal');
     pdf.setTextColor(...mediumGray);
-    pdf.text('This is to certify that', pageWidth / 2, 75, { align: 'center' });
+    pdf.text('LIFE-SAVING BLOOD DONATION', pageWidth / 2, 70, { align: 'center' });
 
-    // Add recipient name
-    pdf.setFontSize(28);
-    pdf.setFont('times', 'bold');
+    // "Presented to" text
+    pdf.setFontSize(11);
+    pdf.setTextColor(...lightGray);
+    pdf.text('This is proudly presented to', pageWidth / 2, 85, { align: 'center' });
+
+    // Recipient name - large and bold
+    pdf.setFontSize(32);
+    pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(...darkGray);
-    pdf.text(userData.name, pageWidth / 2, 88, { align: 'center' });
+    pdf.text(userData.name, pageWidth / 2, 100, { align: 'center' });
 
-    // Add underline for name
+    // Underline for name
     pdf.setDrawColor(...primaryRed);
-    pdf.setLineWidth(0.5);
+    pdf.setLineWidth(0.8);
     const nameWidth = pdf.getTextWidth(userData.name);
     pdf.line(
       (pageWidth / 2) - (nameWidth / 2),
-      90,
+      102,
       (pageWidth / 2) + (nameWidth / 2),
-      90
+      102
     );
 
-    // Add description
-    pdf.setFontSize(11);
-    pdf.setFont('helvetica', 'normal');
-    pdf.setTextColor(...darkGray);
-    const description = [
-      'Has demonstrated exceptional commitment to saving lives through voluntary blood donation.',
-      'Your selfless contribution has made a significant impact on our community and has helped',
-      'provide life-saving blood to those in critical need.'
-    ];
-    
-    let descY = 105;
-    description.forEach(line => {
-      pdf.text(line, pageWidth / 2, descY, { align: 'center' });
-      descY += 6;
-    });
-
-    // Add statistics box
-    const statsY = 128;
-    const statsBoxWidth = 180;
-    const statsBoxHeight = 25;
-    const statsBoxX = (pageWidth - statsBoxWidth) / 2;
-
-    // Background for stats
-    pdf.setFillColor(...lightRed);
-    pdf.roundedRect(statsBoxX, statsY, statsBoxWidth, statsBoxHeight, 3, 3, 'F');
-
-    // Stats columns
-    const statWidth = statsBoxWidth / 3;
-    const statY = statsY + 10;
+    // Stats cards (4 boxes)
+    const statsY = 115;
+    const statsBoxWidth = 50;
+    const statsBoxHeight = 22;
+    const statsGap = 5;
+    const totalStatsWidth = (statsBoxWidth * 4) + (statsGap * 3);
+    const startX = (pageWidth - totalStatsWidth) / 2;
 
     // Donation count
-    pdf.setFontSize(20);
+    pdf.setFillColor(...lightRed);
+    pdf.roundedRect(startX, statsY, statsBoxWidth, statsBoxHeight, 3, 3, 'F');
+    pdf.setFontSize(22);
     pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(...primaryRed);
-    pdf.text(userData.totalDonations.toString(), statsBoxX + statWidth / 2, statY, { align: 'center' });
-    
-    pdf.setFontSize(9);
+    pdf.text(userData.totalDonations.toString(), startX + statsBoxWidth / 2, statsY + 10, { align: 'center' });
+    pdf.setFontSize(8);
     pdf.setFont('helvetica', 'normal');
     pdf.setTextColor(...mediumGray);
-    pdf.text('DONATIONS', statsBoxX + statWidth / 2, statY + 6, { align: 'center' });
-
-    // Lives touched
-    pdf.setFontSize(20);
-    pdf.setFont('helvetica', 'bold');
-    pdf.setTextColor(...primaryRed);
-    pdf.text((userData.totalDonations * 3).toString(), statsBoxX + statWidth * 1.5, statY, { align: 'center' });
-    
-    pdf.setFontSize(9);
-    pdf.setFont('helvetica', 'normal');
-    pdf.setTextColor(...mediumGray);
-    pdf.text('LIVES TOUCHED', statsBoxX + statWidth * 1.5, statY + 6, { align: 'center' });
+    pdf.text('YOUR DONATIONS', startX + statsBoxWidth / 2, statsY + 17, { align: 'center' });
 
     // Blood type
-    pdf.setFontSize(20);
+    pdf.setFillColor(...lightRed);
+    pdf.roundedRect(startX + statsBoxWidth + statsGap, statsY, statsBoxWidth, statsBoxHeight, 3, 3, 'F');
+    pdf.setFontSize(22);
     pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(...primaryRed);
-    pdf.text(userData.bloodType, statsBoxX + statWidth * 2.5, statY, { align: 'center' });
-    
-    pdf.setFontSize(9);
+    pdf.text(userData.bloodType, startX + statsBoxWidth + statsGap + statsBoxWidth / 2, statsY + 10, { align: 'center' });
+    pdf.setFontSize(8);
     pdf.setFont('helvetica', 'normal');
     pdf.setTextColor(...mediumGray);
-    pdf.text('BLOOD TYPE', statsBoxX + statWidth * 2.5, statY + 6, { align: 'center' });
+    pdf.text('BLOOD TYPE', startX + statsBoxWidth + statsGap + statsBoxWidth / 2, statsY + 17, { align: 'center' });
 
-    // Add footer with signatures
-    const footerY = pageHeight - 35;
+    // Lives touched
+    pdf.setFillColor(...lightRed);
+    pdf.roundedRect(startX + (statsBoxWidth + statsGap) * 2, statsY, statsBoxWidth, statsBoxHeight, 3, 3, 'F');
+    pdf.setFontSize(22);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor(...primaryRed);
+    pdf.text((userData.totalDonations * 3).toString(), startX + (statsBoxWidth + statsGap) * 2 + statsBoxWidth / 2, statsY + 10, { align: 'center' });
+    pdf.setFontSize(8);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setTextColor(...mediumGray);
+    pdf.text('LIVES TOUCHED', startX + (statsBoxWidth + statsGap) * 2 + statsBoxWidth / 2, statsY + 17, { align: 'center' });
+
+    // Impact points
+    pdf.setFillColor(...lightRed);
+    pdf.roundedRect(startX + (statsBoxWidth + statsGap) * 3, statsY, statsBoxWidth, statsBoxHeight, 3, 3, 'F');
+    pdf.setFontSize(22);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor(...primaryRed);
+    pdf.text(userData.totalImpactPoints.toString(), startX + (statsBoxWidth + statsGap) * 3 + statsBoxWidth / 2, statsY + 10, { align: 'center' });
+    pdf.setFontSize(8);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setTextColor(...mediumGray);
+    pdf.text('IMPACT POINTS', startX + (statsBoxWidth + statsGap) * 3 + statsBoxWidth / 2, statsY + 17, { align: 'center' });
+
+    // Certificate message
+    pdf.setFontSize(10);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setTextColor(...mediumGray);
+    const message1 = 'In recognition of your extraordinary commitment to saving lives through voluntary blood donation.';
+    const message2 = 'Your selfless contribution has made a profound impact on countless individuals and families.';
+    pdf.text(message1, pageWidth / 2, 148, { align: 'center', maxWidth: pageWidth - 60 });
+    pdf.text(message2, pageWidth / 2, 155, { align: 'center', maxWidth: pageWidth - 60 });
+
+    // Footer signatures
+    const footerY = pageHeight - 40;
 
     // Left signature
     pdf.setFontSize(16);
-    pdf.setFont('brush script mt', 'italic');
+    pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(...darkGray);
-    pdf.text('Raksetu', 40, footerY);
+    pdf.text('Dr. Rajesh Kumar', 45, footerY);
 
-    pdf.setLineWidth(0.3);
+    pdf.setLineWidth(0.5);
     pdf.setDrawColor(...primaryRed);
-    pdf.line(30, footerY + 2, 70, footerY + 2);
+    pdf.line(30, footerY + 3, 85, footerY + 3);
 
     pdf.setFontSize(9);
     pdf.setFont('helvetica', 'normal');
     pdf.setTextColor(...mediumGray);
-    pdf.text('Medical Director', 50, footerY + 8, { align: 'center' });
-    pdf.text('Raksetu Blood Hub', 50, footerY + 13, { align: 'center' });
+    pdf.text('Medical Director', 57.5, footerY + 9, { align: 'center' });
+    pdf.text('Raksetu Blood Services', 57.5, footerY + 14, { align: 'center' });
 
-    // Right date section
-    const dateX = pageWidth - 50;
-    pdf.setFontSize(9);
-    pdf.setFont('helvetica', 'normal');
-    pdf.setTextColor(...mediumGray);
-    pdf.text('Date of Issue', dateX, footerY);
-
+    // Center - Issue date
     const currentDate = new Date().toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'long',
       day: 'numeric'
     });
     
+    pdf.setFontSize(8);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setTextColor(...lightGray);
+    pdf.text('Issue Date', pageWidth / 2, footerY - 3, { align: 'center' });
+    
     pdf.setFontSize(11);
     pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(...darkGray);
-    pdf.text(currentDate, dateX, footerY + 6);
+    pdf.text(currentDate, pageWidth / 2, footerY + 4, { align: 'center' });
 
-    // Add certificate ID (bottom center)
-    const certId = `CERT-${Date.now()}-${userData.name.replace(/\s+/g, '').substring(0, 3).toUpperCase()}`;
-    pdf.setFontSize(7);
+    // Right signature
+    pdf.setFontSize(16);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor(...darkGray);
+    pdf.text('Raksetu Foundation', pageWidth - 45, footerY, { align: 'right' });
+
+    pdf.setLineWidth(0.5);
+    pdf.setDrawColor(...primaryRed);
+    pdf.line(pageWidth - 85, footerY + 3, pageWidth - 30, footerY + 3);
+
+    pdf.setFontSize(9);
     pdf.setFont('helvetica', 'normal');
     pdf.setTextColor(...mediumGray);
-    pdf.text(`Certificate ID: ${certId}`, pageWidth / 2, pageHeight - 15, { align: 'center' });
+    pdf.text('Authorized Signatory', pageWidth - 57.5, footerY + 9, { align: 'center' });
+    pdf.text('Ministry of Health', pageWidth - 57.5, footerY + 14, { align: 'center' });
 
-    // Add verification note
+    // Certificate ID at bottom
+    const certId = `RAKSETU-${Date.now().toString(36).toUpperCase()}-${userData.name.replace(/\s+/g, '').substring(0, 3).toUpperCase()}`;
+    pdf.setFontSize(7);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setTextColor(...lightGray);
+    pdf.text(`Certificate ID: ${certId}`, pageWidth / 2, pageHeight - 18, { align: 'center' });
+
+    // Verification note
     pdf.setFontSize(7);
     pdf.setFont('helvetica', 'italic');
-    pdf.text('This certificate can be verified at raksetu.org/verify', pageWidth / 2, pageHeight - 10, { align: 'center' });
+    pdf.text('Verify at: raksetu.live/verify', pageWidth / 2, pageHeight - 13, { align: 'center' });
 
     // Generate filename
     const filename = `Raksetu-Certificate-${userData.name.replace(/\s+/g, '-')}-${Date.now()}.pdf`;
@@ -246,13 +248,6 @@ export const generatePDFCertificate = (userData) => {
     // Save the PDF
     pdf.save(filename);
 
-    return true;
-  } catch (error) {
-    console.error('Error generating PDF certificate:', error);
-    alert('Failed to generate PDF certificate. Please try again.');
-    return false;
-  }
-};
 
 /**
  * Generate an annual donation report PDF

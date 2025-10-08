@@ -837,7 +837,12 @@ export default function VoiceAssistant({ userProfile, onNavigate, onCreateEmerge
 
       {/* Voice Assistant Panel */}
       {!isMinimized && (
-        <div className="fixed bottom-6 left-24 z-40 w-96 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
+        <div className="fixed inset-0 md:inset-auto md:bottom-6 md:left-24 z-40 flex items-center justify-center md:block p-4 md:p-0">
+          {/* Backdrop for mobile */}
+          <div className="fixed inset-0 bg-black/50 md:hidden" onClick={() => setIsMinimized(true)} />
+          
+          {/* Modal Content */}
+          <div className="relative w-full max-w-md md:w-96 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden max-h-[90vh] flex flex-col">
           {/* Header */}
           <div className="bg-gradient-to-r from-red-600 to-black text-white p-4 flex items-center justify-between">
             <div className="flex items-center space-x-2">
@@ -1054,6 +1059,7 @@ export default function VoiceAssistant({ userProfile, onNavigate, onCreateEmerge
                 Click the microphone and speak your query
               </p>
             )}
+          </div>
           </div>
         </div>
       )}

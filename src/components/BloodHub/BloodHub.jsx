@@ -76,6 +76,7 @@ export default function BloodHub() {
     totalDonors: 0,
     totalDonations: 0,
     livesImpacted: 0,
+    totalBloodBanks: 0,
     activeRequests: 0
   });
   const [recentDonations, setRecentDonations] = useState([]);
@@ -249,17 +250,28 @@ export default function BloodHub() {
           .sort((a, b) => a.distance - b.distance);
         setBloodBanks(nearby);
 
-        // Fetch Statistics
-        const statsDoc = await getDoc(doc(db, 'statistics', 'global'));
-        if (statsDoc.exists()) {
-          const statsData = statsDoc.data();
-          setStats(prev => ({
-            ...prev,
-            totalDonors: statsData.totalDonors || 0,
-            totalDonations: statsData.totalDonations || 0,
-            livesImpacted: statsData.livesImpacted || 0
-          }));
-        }
+        // Fetch Real-time Statistics from actual collections
+        // Count total users (active donors)
+        const usersSnapshot = await getDocs(collection(db, 'users'));
+        const totalDonors = usersSnapshot.size;
+
+        // Count total blood banks
+        const totalBloodBanks = bloodBanksSnapshot.size;
+
+        // Count total donations from donationsDone
+        const donationsSnapshot = await getDocs(
+          query(collection(db, 'donationsDone'), where('status', '==', 'completed'))
+        );
+        const totalDonations = donationsSnapshot.size;
+        const livesImpacted = totalDonations * 3; // Each donation saves ~3 lives
+
+        setStats(prev => ({
+          ...prev,
+          totalDonors,
+          totalBloodBanks,
+          totalDonations,
+          livesImpacted
+        }));
 
         return () => unsubscribeDrives();
       } catch (error) {
