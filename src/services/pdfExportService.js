@@ -248,6 +248,13 @@ export const generatePDFCertificate = (userData) => {
     // Save the PDF
     pdf.save(filename);
 
+    return true;
+  } catch (error) {
+    console.error('Error generating PDF certificate:', error);
+    alert('Failed to generate PDF certificate. Please try again.');
+    return false;
+  }
+};
 
 /**
  * Generate an annual donation report PDF
